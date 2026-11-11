@@ -206,6 +206,9 @@ export class Stage {
     return true;
   }
 
+  /** Короткая вспышка «сейфа», когда в него засчитан предмет. */
+  flashSafe() { this.safeFlash = 1; }
+
   setAlarm(on) { this.alarm = on; if (!on) this.alarmLight.intensity = 0; }
 
   update(dt, time, handPos, safePulse = 0) {
@@ -239,8 +242,9 @@ export class Stage {
     p.needsUpdate = true;
 
     // «сейф» пульсирует, тревога мигает
+    this.safeFlash = Math.max(0, (this.safeFlash || 0) - dt * 2.5);
     this.safeRing.material.opacity = 0.55 + 0.3 * Math.sin(time * 3) + safePulse * 0.4;
-    this.safeDisc.material.opacity = 0.05 + safePulse * 0.18;
+    this.safeDisc.material.opacity = 0.05 + safePulse * 0.18 + this.safeFlash * 0.6;
     if (this.alarm) {
       const k = 0.5 + 0.5 * Math.sin(time * 9);
       this.alarmLight.intensity = 30 * k;

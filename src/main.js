@@ -7,7 +7,11 @@ import { createMaterials } from './textures.js';
 import { loadModels } from './assets.js';
 import { Stage } from './scene.js';
 import { GlassBox, GROUP } from './box.js';
-import { Bar } from './bar.js';
+import { Loot } from './loot.js';
+import { levelLoot, lootNeeded } from './loot-types.js';
+import { nextAfter, placeOf, levelById, totalStars } from './heists.js';
+import { cosmeticById, unlockedCosmetics } from './cosmetics.js';
+import { T } from './strings.js';
 import { Hand } from './hand.js';
 import { Pedestal, createTraps } from './traps.js';
 import { AudioSys } from './audio.js';
@@ -33,12 +37,12 @@ class Game {
   async init() {
     this.ui = new UI(document.getElementById('ui'), {
       click: () => { this.audio.init(); this.audio.uiClick(); },
-      play: (i) => this.startLevel(i),
+      playId: (id) => this.startLevelById(id),
       resume: () => this.resume(),
       restart: () => this.startLevel(this.levelIndex),
-      next: () => this.startLevel(Math.min(this.levelIndex + 1, LEVELS.length - 1)),
+      next: () => { const n = nextAfter(this.level.id, this.save); if (n && !n.locked) this.startLevelById(n.level.id); else this.toMenu(); },
       menu: () => this.toMenu(),
-      skin: (s) => this.hand.setSkin(s),
+      skin: (id) => this.hand.setSkin(cosmeticById(id)),
       volume: (v) => this.audio.setVolume(v),
     }, this.save);
     this.ui.show('loading');
@@ -52,10 +56,10 @@ class Game {
     this.stage = new Stage(document.getElementById('c'), this.M, models);
     this._initPhysics();
     this.hand = new Hand({ scene: this.stage.scene, world: this.world, M: this.M, glbScene: models.hand });
-    this.hand.setSkin(this.save.skin);
+    this.hand.setSkin(cosmeticById(this.save.skin));
     this._bindInput();
 
-    this._loadLevel(0);
+    this._loadLevel(LEVELS[0]);
     this.state = 'menu';
     this.ui.setLoading(1);
     this.ui.show('menu');
@@ -69,10 +73,7 @@ class Game {
     world.allowSleep = false;
     world.defaultContactMaterial.friction = 0.45;
     world.defaultContactMaterial.restitution = 0;
-    this.staticMaterial = new CANNON.Material('static');
-    this.barMaterial = new CANNON.Material('bar');
-    this.barContact = new CANNON.ContactMaterial(this.barMaterial, this.staticMaterial, { friction: PHYS.staticFriction, restitution: PHYS.restitution });
-    world.addContactMaterial(this.barContact);
+    this.staticMaterial = new CANNON.Material('static');   // контактные материалы «предмет — статика» заводит src/loot.js
 
     const [tw, tt, td] = WORLD.tableSize, c = new THREE.Vector3(0, WORLD.tableY - tt / 2, 0), h = new THREE.Vector3(tw / 2, tt / 2, td / 2);
     const table = new CANNON.Body({ type: CANNON.Body.STATIC, material: this.staticMaterial, collisionFilterGroup: GROUP.STATIC, collisionFilterMask: GROUP.BAR });
@@ -86,27 +87,28 @@ class Game {
   // --- уровни ---------------------------------------------------------------
   _clearLevel() {
     this.traps?.forEach((t) => t.dispose());
-    this.pedestal?.dispose(); this.bar?.dispose(); this.box?.dispose();
-    this.traps = []; this.pedestal = this.bar = this.box = null;
+    this.pedestal?.dispose(); this.items?.forEach((it) => it.dispose()); this.box?.dispose();
+    this.traps = []; this.items = []; this.pedestal = this.box = null;
     this.audio.sirenStop();
   }
 
-  _loadLevel(index) {
+  /** @param level описание уровня (обычно из LEVELS; проверки могут передать своё) */
+  _loadLevel(level) {
     this._clearLevel();
-    const level = this.level = LEVELS[index];
-    this.levelIndex = index;
+    this.level = level;
+    this.levelIndex = LEVELS.indexOf(level);
     const scene = this.stage.scene, world = this.world, M = this.M, staticMaterial = this.staticMaterial;
-    this.barContact.friction = level.bar.friction ?? PHYS.staticFriction;
     this.box = new GlassBox({ scene, world, level, M, glbRoot: this.models.glass_box, staticMaterial });
     if (level.pedestal) this.pedestal = new Pedestal({ scene, world, M, level, glbScene: this.models.pedestal, staticMaterial });
-    this.bar = new Bar({ scene, world, M, glbScene: this.models.gold_bar, level, material: this.barMaterial });
-    this.bar.body.addEventListener('collide', (e) => this._onBarCollide(e));
-    this.traps = createTraps(level, { scene, world, M, level, bar: this.bar, staticMaterial });
+    this.items = levelLoot(level).map((def, index) => new Loot({ scene, world, M, models: this.models, level, def, index, staticMaterial }));
+    for (const it of this.items) it.body.addEventListener('collide', (e) => this._onLootCollide(e));
+    this.lootNeed = lootNeeded(level); this.lootDone = 0;
+    this.traps = createTraps(level, { scene, world, M, level, items: this.items, staticMaterial });
     this._refreshStatics();
     this.hand.reset(level);
     this.stage.setLevel(level);
 
-    this.time = 0; this.touches = 0; this.winTimer = 0; this.endTimer = 0; this.endAction = null;
+    this.time = 0; this.touches = 0; this.endTimer = 0; this.endAction = null;
     this.lastGlassContact = -9; this.lastHit = -9; this.alarmState = null; this.safePulse = 0;
     this.hud.meter = null; this.acc = 0;
   }
@@ -115,11 +117,15 @@ class Game {
     this.hand.statics = [...this.box.colliders, this.tableCollider, ...(this.pedestal?.colliders || []), ...this.traps.flatMap((t) => t.colliders || [])];
   }
 
-  startLevel(index) {
+  startLevel(index) { this.startLevelDef(LEVELS[index]); }
+  startLevelById(id) { this.startLevelDef(levelById(id)); }
+
+  /** Запустить уровень по его описанию. */
+  startLevelDef(level) {
     this.audio.init();
-    this._loadLevel(index);
+    this._loadLevel(level);
     this.state = 'playing';
-    this.ui.hideScreens(); this.ui.showHud(true); this.ui.startLevel(this.level);
+    this.ui.hideScreens(); this.ui.showHud(true); this.ui.startLevel(this.level, placeOf(level.id));
     this._requestLock();
   }
 
@@ -177,7 +183,7 @@ class Game {
     this.audio.win();
     this.endAction = () => {
       this.state = 'won';
-      this.ui.showWin({ level, time, touches, starsCount, best: this.save.best[level.id], record: record && !!prev, hasNext: this.levelIndex < LEVELS.length - 1 });
+      this.ui.showWin({ level, place: placeOf(level.id), time, touches, starsCount, best: this.save.best[level.id], record: record && !!prev, next: nextAfter(level.id, this.save), stars: totalStars(this.save) });
       document.exitPointerLock?.();
     };
   }
@@ -201,7 +207,7 @@ class Game {
     }
   }
 
-  _onBarCollide(e) {
+  _onLootCollide(e) {
     const v = Math.abs(e.contact.getImpactVelocityAlongNormal()), kind = e.body.userData?.kind;
     if (kind === 'glass') this._glassContact(e.body.userData.wall, v >= GLASS.barHitSpeed ? Math.max(v, this.box.hitSpeed) : Math.min(v, this.box.hitSpeed * 0.9));
     else if (kind !== 'hand' && v > 0.3) this.audio.thud(clamp(v / 2.5, 0, 1));
@@ -270,21 +276,21 @@ class Game {
       if (this.autopilot) { const r = this.autopilot.next(); if (r.done) this.autopilot = null; } else this._applyKeys(dt);
     }
     this.hud.meter = null;
-    this.hand.step(dt, this.bar);
+    this.hand.step(dt, this.items);
     this.world.step(dt);
-    this.bar.postStep();
+    for (const it of this.items) if (!it.banked) it.postStep();
 
     for (const ev of this.hand.events) {
       if (ev.type === 'contact') {
         if (ev.kind === 'glass') this._glassContact(ev.wall, ev.impact);
         else if (ev.byBar && ev.impact > 0.35) this.audio.thud(clamp(ev.impact / 2, 0, 1));
       } else if (ev.type === 'grab') this.audio.grab();
-      else if (ev.type === 'release' && ev.reason === 'slip') this.toast('Выскользнул!');
+      else if (ev.type === 'release' && ev.reason === 'slip') this.toast(T.slipped);
     }
     this.hand.events.length = 0;
     if (!playing) return;
 
-    const ctx = { game: this, hand: this.hand, bar: this.bar, audio: this.audio, time: this.time };
+    const ctx = { game: this, hand: this.hand, items: this.items, audio: this.audio, time: this.time };
     for (const t of this.traps) t.step(dt, ctx);
 
     if (this.alarmState) {
@@ -293,12 +299,30 @@ class Game {
     }
     if (this.level.timeLimit && this.time > this.level.timeLimit) return this.fail('Время вышло');
 
-    // победа: слиток лежит в «сейфе» и рука его отпустила
-    const p = this.bar.body.position, s = this.level.safe;
-    const d = Math.hypot(p.x - s.pos[0], p.z - s.pos[1]), inZone = d < s.radius - 0.02 && p.y < WORLD.tableY + 0.14 && p.y > WORLD.tableY;
-    this.safePulse = inZone ? 1 : 0;
-    if (inZone && !this.hand.holding && this.bar.speed() < 0.08) { this.winTimer += dt; if (this.winTimer > 0.35) this.win(); } else this.winTimer = 0;
-    if (p.y < WORLD.tableY - 0.2) this.fail('Слиток упал со стола');
+    // добыча: предмет полежал в «сейфе» без руки — засчитан; вся нужная добыча в сейфе — победа
+    const s = this.level.safe;
+    this.safePulse = 0;
+    for (const it of this.items) {
+      if (it.banked) continue;
+      const p = it.body.position;
+      if (p.y < WORLD.tableY - 0.2) {
+        if (it.role === 'target') return this.fail(it.type.failFall);
+        it.bank(); this.toast(T.propLost);
+        continue;
+      }
+      if (it.role !== 'target') continue;
+      const d = Math.hypot(p.x - s.pos[0], p.z - s.pos[1]), inZone = d < s.radius - 0.02 && p.y < WORLD.tableY + 0.14 && p.y > WORLD.tableY;
+      if (inZone) this.safePulse = 1;
+      if (inZone && this.hand.item !== it && it.speed() < 0.08) {
+        it.zoneTime += dt;
+        if (it.zoneTime > 0.35) {
+          this.lootDone++;
+          if (this.lootDone >= this.lootNeed) return this.win();
+          it.bank(); this.stage.flashSafe(); this.audio.bank();
+          this.toast(T.itemBanked(this.lootDone, this.lootNeed));
+        }
+      } else it.zoneTime = 0;
+    }
   }
 
   _frame(now) {
@@ -318,18 +342,21 @@ class Game {
 
     const t = this.clock;
     this.hand.updateVisual(t);
-    this.bar.sync();
+    for (const it of this.items) {
+      if (it.banked) continue;
+      it.sync();
+      // подсветка «можно схватить» — только у предмета, который сейчас возьмёт рука (у горячего слитка свечением управляет ловушка)
+      if (!it.glowOwner) it.setGlow(this.state === 'playing' && this.hand.grabItem === it ? 0.12 + 0.06 * Math.sin(t * 10) : 0, 0xffb040);
+    }
     for (const tr of this.traps) tr.update(t);
     this.box.update(dt);
-    if (this.state !== 'playing' && !this.traps.some((x) => x.def.type === 'hot')) this.bar.setGlow(0);
-    else if (!this.traps.some((x) => x.def.type === 'hot')) this.bar.setGlow(this.hand.grabReady ? 0.12 + 0.06 * Math.sin(t * 10) : 0, 0xffb040);
     this.stage.update(dt, t, this.hand.pos, this.safePulse);
     this.stage.render();
 
     if (this.state === 'playing' || this.state === 'ending') {
       this.ui.update(dt, {
         time: this.time, timeLimit: this.level.timeLimit, touches: this.touches, damage: this.box.damage, maxHealth: this.box.maxHealth,
-        camUses: this.stage.sideUses, meter: this.hud.meter, alarm: this.alarmState, grabReady: this.hand.grabReady, holding: this.hand.holding,
+        camUses: this.stage.sideUses, meter: this.hud.meter, loot: this.lootNeed > 1 ? { done: this.lootDone, need: this.lootNeed } : null, alarm: this.alarmState, grabReady: this.hand.grabReady, holding: this.hand.holding,
         needLock: this.state === 'playing' && !this.autopilot && document.pointerLockElement !== this.stage.renderer.domElement,
       });
     }
@@ -338,16 +365,17 @@ class Game {
   // --- автопилот (проверка проходимости) ---------------------------------------
   /** Показать прохождение уровня автопилотом в реальном времени. */
   runAuto(id = this.level.id, timeScale = 1) {
-    this.startLevel(LEVELS.findIndex((l) => l.id === id));
+    this.startLevelById(id);
     this.autopilot = autopilotFor(this); this.timeScale = timeScale; this.result = null;
   }
 
   /** Синхронно прогнать уровень автопилотом без отрисовки. Возвращает итог. */
+  /** id — номер уровня или описание уровня (объект). */
   autoTest(id, maxSeconds = 120) {
-    this.startLevel(LEVELS.findIndex((l) => l.id === id));
+    if (typeof id === 'object') this.startLevelDef(id); else this.startLevelById(id);
     this.autopilot = autopilotFor(this); this.result = null;
     while (this.state === 'playing' && this.time < maxSeconds) this._fixedStep(PHYS.step);
-    const res = { level: id, result: this.result || 'timeout', time: +this.time.toFixed(2), touches: this.touches, damage: this.box.damage, stars: this.result === 'won' ? starsFor(this.level, this.time, this.touches) : 0 };
+    const res = { level: this.level.id, result: this.result || 'timeout', time: +this.time.toFixed(2), touches: this.touches, damage: this.box.damage, stars: this.result === 'won' ? starsFor(this.level, this.time, this.touches) : 0 };
     this.autopilot = null; this.endTimer = 0;
     return res;
   }

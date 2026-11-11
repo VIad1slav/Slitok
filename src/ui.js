@@ -1,11 +1,23 @@
 // HUD, меню, экраны победы/поражения, сохранение прогресса. Весь текст — на русском.
-import { LEVELS } from './levels.js';
 import { STORAGE_KEY, FAIL_LINES } from './config.js';
+import { HEISTS, heistStars, isHeistUnlocked, totalStars, continueLevel, levelById } from './heists.js';
+import { cosmeticById, unlockedCosmetics } from './cosmetics.js';
+import { T } from './strings.js';
 
 // --- сохранение (localStorage может быть недоступен — всё в try/catch) ---------
+// Версии сохранения: 1 (без поля version) — { best, skin, volume }; 2 — добавлены version и accessory.
+// Рекорды хранятся по id уровня, а что открыто (ограбления, косметика), считается из звёзд и не хранится.
+export const SAVE_VERSION = 2;
+export function migrateSave(raw) {
+  const def = { version: SAVE_VERSION, best: {}, skin: 'skin', accessory: null, volume: 0.7 };
+  if (!raw || typeof raw !== 'object') return def;
+  const save = { ...def, ...raw, version: SAVE_VERSION };
+  if (!save.best || typeof save.best !== 'object') save.best = {};
+  if (cosmeticById(save.skin).id !== save.skin) save.skin = def.skin;   // неизвестный вариант руки → кожа
+  return save;
+}
 export function loadSave() {
-  const def = { best: {}, skin: 'skin', volume: 0.7 };
-  try { return { ...def, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') }; } catch { return def; }
+  try { return migrateSave(JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')); } catch { return migrateSave(null); }
 }
 export function storeSave(save) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(save)); } catch { /* приватный режим и т.п. */ }
@@ -46,11 +58,15 @@ export class UI {
     const menu = this._screen('menu');
     const card = el('div', 'card menu');
     card.append(el('div', 'kicker', 'ограбление музея · ночь'), el('div', 'title', 'GOLDEN <b>GRAB</b>'), el('div', 'muted lead', 'Просунь руку. Возьми слиток. Не разбей стекло.'));
-    card.append(this._button('Играть', () => this.h.play(this._nextLevelIndex()), 'primary'));
-    card.append(this._button('Выбор уровня', () => this.show('levels')));
+    card.append(this._button('Играть', () => this.h.playId(continueLevel(this.save).id), 'primary'));
+    card.append(this._button(T.levelSelect, () => this.show('levels')));
     card.append(this._button('Управление', () => this.show('controls')));
     const opts = el('div', 'opts');
-    this.skinBtn = this._button('', () => { this.save.skin = this.save.skin === 'skin' ? 'glove' : 'skin'; this._syncOptions(); this.h.skin(this.save.skin); storeSave(this.save); }, 'ghost');
+    this.skinBtn = this._button('', () => {   // перебор открытых вариантов руки по кругу
+      const list = unlockedCosmetics('hand', totalStars(this.save)), i = list.findIndex((c) => c.id === this.save.skin);
+      this.save.skin = list[(i + 1) % list.length].id;
+      this._syncOptions(); this.h.skin(this.save.skin); storeSave(this.save);
+    }, 'ghost');
     const vol = el('label', 'vol', '<span>Громкость</span>');
     this.volInput = el('input'); this.volInput.type = 'range'; this.volInput.min = 0; this.volInput.max = 1; this.volInput.step = 0.01;
     this.volInput.addEventListener('input', () => { this.save.volume = +this.volInput.value; this.h.volume(this.save.volume); storeSave(this.save); });
@@ -62,8 +78,8 @@ export class UI {
     // --- уровни
     const levels = this._screen('levels');
     const lc = el('div', 'card wide');
-    lc.append(el('div', 'h2', 'Выбор уровня'));
-    this.levelGrid = el('div', 'grid');
+    lc.append(el('div', 'h2', T.levelSelect));
+    this.levelGrid = el('div', 'heists');
     lc.append(this.levelGrid, this._button('Назад', () => this.show('menu'), 'ghost'));
     levels.append(lc);
 
@@ -87,7 +103,7 @@ export class UI {
     // --- победа
     const win = this._screen('win');
     const wc = el('div', 'card');
-    wc.append(el('div', 'kicker', 'слиток в сейфе'), this.winTitle = el('div', 'h2'), this.winStars = el('div', 'bigstars'), this.winStats = el('div', 'stats'));
+    wc.append(el('div', 'kicker', 'добыча в сейфе'), this.winTitle = el('div', 'h2'), this.winStars = el('div', 'bigstars'), this.winStats = el('div', 'stats'), this.winNote = el('div', 'muted'));
     this.nextBtn = this._button('Дальше', () => this.h.next(), 'primary');
     wc.append(this.nextBtn, this._button('Ещё раз', () => this.h.restart()), this._button('В меню', () => this.h.menu(), 'ghost'));
     win.append(wc);
@@ -107,6 +123,7 @@ export class UI {
         <div class="row"><span class="timer">0:00.0</span><span class="limit"></span></div>
         <div class="row small"><span>Касания стекла</span><b class="touches">0</b></div>
         <div class="row small"><span>Стекло</span><span class="pips"></span></div>
+        <div class="row small lootrow" hidden><span class="lootlabel"></span><b class="loot"></b></div>
       </div>
       <div class="tr">
         <div class="cam"><kbd>C</kbd> вид сбоку <b class="camuses">3</b></div>
@@ -119,7 +136,7 @@ export class UI {
       <div class="clickme" hidden>Кликни, чтобы захватить мышь</div>`;
     this.root.append(hud);
     const q = (s) => hud.querySelector(s);
-    this.$ = { lvl: q('.lvl'), timer: q('.timer'), limit: q('.limit'), touches: q('.touches'), pips: q('.pips'), camuses: q('.camuses'), meter: q('.meter'), mlabel: q('.mlabel'), mbar: q('.mbar i'), alarm: q('.alarm'), atext: q('.atext'), acount: q('.acount'), toast: q('.toast'), grab: q('.grab'), grabText: q('.grab span'), hint: q('.hint'), clickme: q('.clickme') };
+    this.$ = { lootrow: q('.lootrow'), lootlabel: q('.lootlabel'), loot: q('.loot'), lvl: q('.lvl'), timer: q('.timer'), limit: q('.limit'), touches: q('.touches'), pips: q('.pips'), camuses: q('.camuses'), meter: q('.meter'), mlabel: q('.mlabel'), mbar: q('.mbar i'), alarm: q('.alarm'), atext: q('.atext'), acount: q('.acount'), toast: q('.toast'), grab: q('.grab'), grabText: q('.grab span'), hint: q('.hint'), clickme: q('.clickme') };
     this.vignette = el('div', 'vignette'); this.root.append(this.vignette);
 
     this._syncOptions();
@@ -127,23 +144,30 @@ export class UI {
   }
 
   _syncOptions() {
-    this.skinBtn.innerHTML = `Рука: <b>${this.save.skin === 'glove' ? 'перчатка' : 'кожа'}</b>`;
+    this.skinBtn.innerHTML = `${T.handLabel}: <b>${cosmeticById(this.save.skin).name}</b>`;
     this.volInput.value = this.save.volume;
   }
 
-  _nextLevelIndex() {
-    const i = LEVELS.findIndex((l) => !this.save.best[l.id]);
-    return i < 0 ? 0 : i;
-  }
-
+  /** Экран выбора: по блоку на ограбление — название, звёзды, замок с порогом, карточки уровней. */
   refreshLevels() {
     this.levelGrid.innerHTML = '';
-    LEVELS.forEach((l, i) => {
-      const best = this.save.best[l.id];
-      const b = el('button', 'lvlcard' + (best ? ' done' : ''), `<span class="num">${l.id}</span><span class="name">${l.name}</span>${stars(best?.stars || 0)}<span class="best">${best ? fmtTime(best.time) : '—'}</span>`);
-      b.addEventListener('click', () => { this.h.click?.(); this.h.play(i); });
-      this.levelGrid.append(b);
-    });
+    const have = totalStars(this.save);
+    for (const heist of HEISTS) {
+      const open = isHeistUnlocked(heist, this.save), st = heistStars(heist, this.save);
+      const block = el('div', 'heist' + (open ? '' : ' locked'));
+      const status = !open ? T.heistLocked(heist.unlockStars, have) : heist.levels.length ? T.heistStars(st.have, st.max) : T.heistEmpty;
+      block.append(el('div', 'heisthead', `<span class="hname">${heist.name}</span><span class="htag">${heist.tagline}</span><span class="hstat">${open ? '' : '<i class="lock"></i>'}${status}</span>`));
+      const grid = el('div', 'grid');
+      heist.levels.forEach((id, i) => {
+        const l = levelById(id), best = this.save.best[id];
+        const b = el('button', 'lvlcard' + (best ? ' done' : ''), `<span class="num">${i + 1}</span><span class="name">${l.name}</span>${stars(best?.stars || 0)}<span class="best">${best ? fmtTime(best.time) : '—'}</span>`);
+        b.disabled = !open;
+        b.addEventListener('click', () => { this.h.click?.(); this.h.playId(id); });
+        grid.append(b);
+      });
+      if (heist.levels.length) block.append(grid);
+      this.levelGrid.append(block);
+    }
   }
 
   setLoading(p) { this.loadBar.firstChild.style.width = `${Math.round(p * 100)}%`; }
@@ -156,8 +180,10 @@ export class UI {
   hideScreens() { for (const s of Object.values(this.screens)) s.hidden = true; }
   showHud(on) { this.hud.hidden = !on; }
 
-  startLevel(level) {
-    this.$.lvl.textContent = `Уровень ${level.id} · ${level.name}`;
+  /** @param place место уровня в кампании ({ heist, number }) или null для уровня вне кампании */
+  startLevel(level, place) {
+    this.$.lvl.textContent = place ? T.hudLevel(place.heist.name, place.number, level.name) : T.hudLevelPlain(level.id, level.name);
+    this.$.lootlabel.textContent = T.hudLoot;
     this.$.hint.textContent = level.hint; this.$.hint.classList.remove('gone');
     this.hintTimer = 10;
     this.$.limit.textContent = level.timeLimit ? ` / ${fmtTime(level.timeLimit)}` : '';
@@ -175,6 +201,8 @@ export class UI {
     const pips = Array.from({ length: s.maxHealth }, (_, i) => `<i class="${i < s.maxHealth - s.damage ? 'on' : ''}"></i>`).join('');
     if (this._pips !== pips) { this.$.pips.innerHTML = pips; this._pips = pips; }
     this.$.camuses.textContent = s.camUses;
+    this.$.lootrow.hidden = !s.loot;
+    if (s.loot) this.$.loot.textContent = `${s.loot.done} / ${s.loot.need}`;
     this.$.meter.hidden = !s.meter;
     if (s.meter) { this.$.mlabel.textContent = s.meter.label; this.$.mbar.style.width = `${Math.min(100, s.meter.value * 100)}%`; }
     this.$.alarm.hidden = !s.alarm;
@@ -187,11 +215,15 @@ export class UI {
     if (this.toastTimer > 0) { this.toastTimer -= dt; if (this.toastTimer <= 0) this.$.toast.hidden = true; }
   }
 
-  showWin({ level, time, touches, starsCount, best, hasNext, record }) {
-    this.winTitle.textContent = `Уровень ${level.id} пройден`;
+  /** next — следующий уровень кампании ({ heist, locked }) или null; stars — сумма звёзд игрока. */
+  showWin({ level, place, time, touches, starsCount, best, next, record, stars: have }) {
+    this.winTitle.textContent = place ? T.winTitle(place.heist.name, place.number) : `Уровень ${level.id} пройден`;
     this.winStars.innerHTML = stars(starsCount);
     this.winStats.innerHTML = `<div><span>Время</span><b>${fmtTime(time)}</b></div><div><span>Касания стекла</span><b>${touches}</b></div><div><span>Лучший результат</span><b>${fmtTime(best.time)} ${record ? '· рекорд!' : ''}</b></div>`;
-    this.nextBtn.hidden = !hasNext;
+    this.nextBtn.hidden = !next || next.locked;
+    this.winNote.textContent = !next ? T.campaignDone : next.locked ? T.nextLocked(next.heist.name, next.heist.unlockStars, have) : '';
+    this.winNote.hidden = !this.winNote.textContent;
+    this._syncOptions();
     this.show('win');
   }
 

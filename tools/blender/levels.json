@@ -236,14 +236,7 @@
       0.045,
       0.075
     ],
-    "topScale": 0.78,
-    "sphereRows": [
-      -0.0125,
-      0,
-      0.0125
-    ],
-    "sphereCols": 9,
-    "sphereR": 0.0225
+    "topScale": 0.78
   },
   "glass": {
     "thickness": 0.012

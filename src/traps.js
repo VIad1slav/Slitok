@@ -1,6 +1,9 @@
 // Ловушки и реквизит внутри коробки: подставка, нажимная плита, лазеры, горячий слиток, карусель.
 // Каждая ловушка: step(dt, ctx) — логика на шаге физики, update(time) — визуал, dispose().
-// ctx = { game, hand, bar, audio, time } ; game.alarm(seconds, text) / game.fail(reason).
+// ctx = { game, hand, items, audio, time } ; game.alarm(seconds, text) / game.fail(reason).
+// env.item — предмет добычи, за которым следит ловушка (номер в списке предметов уровня: def.item, по умолчанию 0).
+// Необязательный autoReady(phase, ctx) — ответ автопилоту «сейчас безопасно?»:
+//   phase 'enter' — перед тем как сунуть руку в отверстие, 'grab' — перед тем как сжать пальцы над предметом.
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { WORLD } from './config.js';
@@ -59,7 +62,7 @@ class PlateTrap {
     env.scene.add(this.mesh);
   }
   step(dt, ctx) {
-    const bar = ctx.bar, y = bar.body.position.y;
+    const bar = this.env.item, y = bar.body.position.y;
     if (this.restY === null) { if (ctx.time > 0.3) { this.restY = y; this.restX = bar.body.position.x; this.restZ = bar.body.position.z; } return; }
     if (this.state !== 'armed') return;
     const lift = y - this.restY, slide = Math.hypot(bar.body.position.x - this.restX, bar.body.position.z - this.restZ);
@@ -128,6 +131,11 @@ class LaserTrap {
       }
     }
   }
+  /** Автопилоту: входить сразу после того, как мигающий луч погас (впереди вся пауза). */
+  autoReady(phase, ctx) {
+    if (phase !== 'enter') return true;
+    return this.beams.every((b) => !b.on || ctx.time % (b.on + b.off) < 0.08);
+  }
   update(time) {
     for (const b of this.beams) {
       const vis = b.active || (b.warn && Math.sin(time * 40) > 0.3);
@@ -145,9 +153,9 @@ class LaserTrap {
 
 /** Горячий слиток: держать можно не дольше holdTime секунд подряд. */
 class HotTrap {
-  constructor(def, env) { this.def = def; this.env = env; this.heat = 0; }
+  constructor(def, env) { this.def = def; this.env = env; this.heat = 0; env.item.glowOwner = this; }
   step(dt, ctx) {
-    if (ctx.hand.holding) {
+    if (ctx.hand.item === this.env.item) {
       this.heat += dt / this.def.holdTime;
       if (this.heat >= 1) {
         ctx.hand.release('hot', this.def.cooldown);
@@ -157,8 +165,8 @@ class HotTrap {
     } else this.heat = Math.max(0, this.heat - dt / (this.def.cooldown * 0.9));
     ctx.game.hud.meter = { label: 'ЖАР', value: this.heat };
   }
-  update(time) { this.env.bar.setGlow(0.5 + 0.2 * Math.sin(time * 5) + this.heat * 0.6); }
-  dispose() { this.env.bar.setGlow(0); }
+  update(time) { this.env.item.setGlow(0.5 + 0.2 * Math.sin(time * 5) + this.heat * 0.6); }
+  dispose() { this.env.item.setGlow(0); this.env.item.glowOwner = null; }
 }
 
 /** Вращающаяся платформа. */
@@ -182,6 +190,17 @@ class SpinnerTrap {
     env.scene.add(this.mesh);
   }
   step() { /* тело вращает сам cannon-es; слиток увлекается трением */ }
+  /** Автопилоту: сжимать пальцы, когда предмет на платформе почти повернулся длинной стороной вдоль руки. */
+  autoReady(phase, ctx) {
+    if (phase !== 'grab') return true;
+    _a.set(1, 0, 0).applyQuaternion(ctx.item.quaternion());
+    const along = ctx.axis === 'x' ? _a.x : _a.z, across = ctx.axis === 'x' ? _a.z : _a.x;
+    const mis = Math.abs(Math.atan2(across, Math.abs(along)));
+    const lead = Math.abs(this.def.speed) * 0.09;            // пальцы сжимаются не мгновенно
+    const ok = this._prevMis !== undefined && mis < this._prevMis && mis < lead + 0.026;
+    this._prevMis = mis;
+    return ok;
+  }
   update() { const q = this.body.quaternion; this.mesh.quaternion.set(q.x, q.y, q.z, q.w); }
   dispose() { this.env.scene.remove(this.mesh); this.mesh.geometry.dispose(); this.env.world.removeBody(this.body); }
 }
@@ -189,5 +208,5 @@ class SpinnerTrap {
 const TYPES = { plate: PlateTrap, lasers: LaserTrap, hot: HotTrap, spinner: SpinnerTrap };
 
 export function createTraps(level, env) {
-  return (level.traps || []).map((def) => new TYPES[def.type](def, env));
+  return (level.traps || []).map((def) => new TYPES[def.type](def, { ...env, item: env.items[def.item ?? 0] }));
 }

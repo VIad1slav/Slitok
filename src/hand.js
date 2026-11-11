@@ -9,8 +9,9 @@
 //    проверке вместе с кистью: кулак со слитком должен целиком пролезть в отверстие.
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { HAND, HAND_GEOM as G, BAR, WORLD } from './config.js';
+import { HAND, HAND_GEOM as G, WORLD } from './config.js';
 import { GROUP } from './box.js';
+import { pointPrimDistance } from './loot.js';
 
 const V = () => new THREE.Vector3();
 const _a = V(), _b = V(), _c = V(), _n = V(), _best = V();
@@ -24,18 +25,30 @@ const PIVOT = new THREE.Vector3(...G.pivot);
 // ---------------------------------------------------------------------------
 /** Глубина проникновения сферы (центр s, радиус r) в коллайдер; нормаль пишется в out. 0 — нет контакта. */
 export function sphereVsCollider(sx, sy, sz, r, col, out) {
-  if (col.type === 'cyl') { // вертикальный цилиндр
-    const dx = sx - col.c.x, dy = sy - col.c.y, dz = sz - col.c.z;
+  if (col.type === 'sphere') {
+    const dx = sx - col.c.x, dy = sy - col.c.y, dz = sz - col.c.z, dist = Math.hypot(dx, dy, dz);
+    if (dist >= r + col.r) return 0;
+    if (dist > 1e-9) out.set(dx / dist, dy / dist, dz / dist); else out.set(0, 1, 0);
+    return r + col.r - dist;
+  }
+  if (col.type === 'cyl') { // цилиндр вдоль своей оси Y (у статики — вертикальный, у добычи может быть повёрнут)
+    _a.set(sx - col.c.x, sy - col.c.y, sz - col.c.z);
+    if (col.qi) _a.applyQuaternion(col.qi);
+    const dx = _a.x, dy = _a.y, dz = _a.z;
     const rad = Math.hypot(dx, dz), cy = clamp(dy, -col.hh, col.hh);
+    let depth;
     if (rad <= col.r && Math.abs(dy) <= col.hh) { // центр внутри
       const pr = col.r - rad, py = col.hh - Math.abs(dy);
-      if (py < pr) { out.set(0, Math.sign(dy) || 1, 0); return r + py; }
-      out.set(dx / (rad || 1), 0, dz / (rad || 1)); return r + pr;
+      if (py < pr) { out.set(0, Math.sign(dy) || 1, 0); depth = r + py; }
+      else { out.set(dx / (rad || 1), 0, dz / (rad || 1)); depth = r + pr; }
+    } else {
+      const k = rad > col.r ? col.r / rad : 1;
+      const ex = dx - dx * k, ey = dy - cy, ez = dz - dz * k, dist = Math.hypot(ex, ey, ez);
+      if (dist >= r) return 0;
+      out.set(ex / dist, ey / dist, ez / dist); depth = r - dist;
     }
-    const k = rad > col.r ? col.r / rad : 1;
-    const ex = dx - dx * k, ey = dy - cy, ez = dz - dz * k, dist = Math.hypot(ex, ey, ez);
-    if (dist >= r) return 0;
-    out.set(ex / dist, ey / dist, ez / dist); return r - dist;
+    if (col.q) out.applyQuaternion(col.q);
+    return depth;
   }
   _a.set(sx - col.c.x, sy - col.c.y, sz - col.c.z);
   if (col.qi) _a.applyQuaternion(col.qi);
@@ -54,13 +67,6 @@ export function sphereVsCollider(sx, sy, sz, r, col, out) {
   }
   if (col.q) out.applyQuaternion(col.q);
   return depth;
-}
-
-/** Расстояние от точки до OBB (0, если внутри). */
-function pointBoxDistance(p, c, qi, h) {
-  _a.copy(p).sub(c).applyQuaternion(qi);
-  const dx = Math.max(0, Math.abs(_a.x) - h.x), dy = Math.max(0, Math.abs(_a.y) - h.y), dz = Math.max(0, Math.abs(_a.z) - h.z);
-  return Math.hypot(dx, dy, dz);
 }
 
 // ---------------------------------------------------------------------------
@@ -122,13 +128,16 @@ export class Hand {
     this.quat = new THREE.Quaternion(); this.prevQuat = new THREE.Quaternion();
     this.ang = { yaw: 0, pitch: 0, roll: 0 }; this.angT = { yaw: 0, pitch: 0, roll: 0 };
     this.curl = 0; this.gripInput = false; this.gripLock = 0; this.gripPressTime = 99;
-    this.holding = false; this.bar = null; this.constraint = null;
-    this.barRelPos = V(); this.barRelQuat = new THREE.Quaternion(); this.heldLocal = [];
+    this.holding = false; this.item = null; this.constraint = null;   // item — предмет в руке
+    this.barRelPos = V(); this.barRelQuat = new THREE.Quaternion(); this.heldLocal = []; this.heldR = [];
     this.slipTimer = 0; this.regrab = 0; this.ghost = 0; this.grabReady = false;
+    this.grabItem = null;   // предмет, который сейчас можно схватить (ближайший к линии хвата)
+    this.lastItem = null;   // последний отпущенный предмет (рука ненадолго «прозрачна» для него)
     this.slipSpeed = HAND.slipSpeed;
     this.statics = [];
     this.events = [];
     this.contacts = [];
+    this._rest = [];
     this.shoulder = new THREE.Vector3(...WORLD.shoulder);
     this.skin = 'skin';
 
@@ -141,7 +150,7 @@ export class Hand {
       const t = i / (G.forearm.count - 1);
       this.local.push({ group: 'forearm', p: new THREE.Vector3(0, 0, G.forearm.from + i * G.forearm.step), r: G.forearm.r0 + (G.forearm.r1 - G.forearm.r0) * t });
     }
-    const maxSpheres = this.local.length + G.upperArm.count + BAR.sphereRows.length * BAR.sphereCols;
+    const maxSpheres = this.local.length + G.upperArm.count + HAND.maxHeldSpheres;
     this.off = new Float32Array(maxSpheres * 4); // смещение сферы от this.pos + радиус
     this.offGroup = new Uint8Array(maxSpheres);  // 0 кисть/рука, 1 слиток в руке
     this.count = 0;
@@ -197,9 +206,15 @@ export class Hand {
     setup(['thumb_01', 'thumb_02', 'thumb_03'], new THREE.Vector3(0.75, -0.6, 0.2).normalize(), CURL.thumb, 0);
   }
 
-  setSkin(name) {
-    this.skin = name;
-    const mat = name === 'glove' ? this.M.glove : this.M.skin;
+  /** @param cosmetic запись из src/cosmetics.js вида 'hand': { id, material, tint? } */
+  setSkin(cosmetic) {
+    this.skin = cosmetic.id;
+    let mat = this.M[cosmetic.material] || this.M.skin;
+    if (cosmetic.tint != null) {             // подкрашенный вариант — своя копия материала, текстуры общие
+      this._tinted ??= {};
+      mat = this._tinted[cosmetic.id] ??= Object.assign(mat.clone(), { name: cosmetic.id });
+      mat.color.set(cosmetic.tint);
+    }
     this.rig.root.traverse((o) => { if (o.isMesh) o.material = mat; });
   }
 
@@ -212,7 +227,8 @@ export class Hand {
     this.ang.roll = this.angT.roll = rad(level.hand.roll || 0);
     this._quatFromAngles(this.quat);
     this.curl = 0; this.gripInput = false; this.gripLock = 0; this.regrab = 0; this.ghost = 0; this.slipTimer = 0;
-    this.slipSpeed = level.grip?.slipSpeed ?? HAND.slipSpeed;
+    this.levelSlipSpeed = this.slipSpeed = level.grip?.slipSpeed ?? HAND.slipSpeed;
+    this.grabItem = this.lastItem = null; this.grabReady = false;
     this._updateWrist();
     this.prevWrist.copy(this.wrist); this.prevQuat.copy(this.quat);
     this.events.length = 0;
@@ -254,20 +270,22 @@ export class Hand {
       off[n * 4] = _b.x + _c.x * d; off[n * 4 + 1] = _b.y + _c.y * d; off[n * 4 + 2] = _b.z + _c.z * d; off[n * 4 + 3] = G.upperArm.r; this.offGroup[n] = 0; n++;
     }
     if (this.holding) {
-      for (const p of this.heldLocal) {
-        _a.copy(p).sub(PIVOT).applyQuaternion(quat);
-        off[n * 4] = _a.x; off[n * 4 + 1] = _a.y; off[n * 4 + 2] = _a.z; off[n * 4 + 3] = BAR.sphereR; this.offGroup[n] = 1; n++;
+      for (let k = 0; k < this.heldLocal.length; k++) {
+        _a.copy(this.heldLocal[k]).sub(PIVOT).applyQuaternion(quat);
+        off[n * 4] = _a.x; off[n * 4 + 1] = _a.y; off[n * 4 + 2] = _a.z; off[n * 4 + 3] = this.heldR[k]; this.offGroup[n] = 1; n++;
       }
     }
     this.count = n;
   }
 
   /** Вытолкнуть набор сфер из статических коллайдеров сдвигом pos. Возвращает остаточное проникновение. */
-  _resolve(pos, bar) {
+  _resolve(pos, items) {
     const off = this.off, n = this.count, statics = this.statics;
     this.contacts.length = 0;
     let residual = 0;
-    const barCol = (!this.holding && bar && bar.speed() < 0.35) ? bar.collider() : null;
+    // лежащие предметы держат ладонь сверху (чтобы рука не вдавливала их в подставку)
+    const rest = this._rest; rest.length = 0;
+    if (!this.holding) for (const it of items) if (!it.banked && it.speed() < 0.35) for (const c of it.colliders()) rest.push(c);
     for (let it = 0; it < HAND.collisionIterations; it++) {
       let deepest = 0, hit = null, hitGroup = 0;
       for (let i = 0; i < n; i++) {
@@ -276,10 +294,11 @@ export class Hand {
           const d = sphereVsCollider(sx, sy, sz, r, statics[k], _n);
           if (d > deepest) { deepest = d; _best.copy(_n); hit = statics[k]; hitGroup = this.offGroup[i]; _c.set(sx, sy, sz).addScaledVector(_n, -r); }
         }
-        // лежащий слиток держит ладонь сверху (чтобы рука не вдавливала его в подставку)
-        if (barCol && i < this.local.length && this.local[i].group !== 'forearm') {
-          const d = sphereVsCollider(sx, sy, sz, r, barCol, _n);
-          if (d > deepest && _n.y > 0.55) { deepest = d; _best.copy(_n); hit = barCol; hitGroup = 0; _c.set(sx, sy, sz); }
+        if (rest.length && i < this.local.length && this.local[i].group !== 'forearm') {
+          for (let k = 0; k < rest.length; k++) {
+            const d = sphereVsCollider(sx, sy, sz, r, rest[k], _n);
+            if (d > deepest && _n.y > 0.55) { deepest = d; _best.copy(_n); hit = rest[k]; hitGroup = 0; _c.set(sx, sy, sz); }
+          }
         }
       }
       residual = deepest;
@@ -291,10 +310,11 @@ export class Hand {
   }
 
   // --- шаг симуляции ------------------------------------------------------------
-  step(dt, bar) {
+  /** @param items предметы добычи уровня (Loot[]) */
+  step(dt, items) {
     // тела cannon ставим точно в текущую позу (после world.step они могли чуть уплыть)
     this._syncBodies(this.wrist, this.quat);
-    this._gripLogic(dt, bar);
+    this._gripLogic(dt, items);
 
     this.prevWrist.copy(this.wrist); this.prevQuat.copy(this.quat);
 
@@ -322,13 +342,13 @@ export class Hand {
 
     // 4) коллизии
     this._build(newPos, this.quat);
-    let residual = this._resolve(newPos, bar);
+    let residual = this._resolve(newPos, items);
     if (residual > 0.003 && rotated) { // поворот упёрся в стекло — отменяем его
       Object.assign(this.ang, prevAng); Object.assign(this.angT, prevAng);
       this.quat.copy(this.prevQuat);
       newPos.copy(this.pos).addScaledVector(this.vel, dt);
       this._build(newPos, this.quat);
-      residual = this._resolve(newPos, bar);
+      residual = this._resolve(newPos, items);
     }
 
     // 5) реакция скорости и события касаний
@@ -351,7 +371,7 @@ export class Hand {
     if (this.holding) {
       this.slipTimer = this.vel.length() > this.slipSpeed ? this.slipTimer + dt : 0;
       _a.copy(this.barRelPos).applyQuaternion(this.prevQuat).add(this.prevWrist);
-      const drift = _a.distanceTo(bar.position());
+      const drift = _a.distanceTo(this.item.position());
       if (this.slipTimer > HAND.slipTime || drift > HAND.slipDrift) this.release('slip');
     }
   }
@@ -372,7 +392,7 @@ export class Hand {
     }
   }
 
-  _gripLogic(dt, bar) {
+  _gripLogic(dt, items) {
     this.gripPressTime += dt; this.regrab -= dt;
     if (this.gripLock > 0) { this.gripLock -= dt; this.gripInput = false; }
     const want = this.gripInput ? 1 : 0;
@@ -382,86 +402,102 @@ export class Hand {
     // сферы пальцев едут вслед за сжатием
     for (const s of this.local) if (s.open) s.p.lerpVectors(s.open, s.closed, this.curl);
 
-    this.grabReady = !this.holding && !!bar && this._canGrab(bar);
-    if (this.gripInput && !this.holding && this.curl >= HAND.grabThreshold && this.regrab <= 0 && this.gripPressTime < 0.6 && this.grabReady) this._attach(bar);
+    // кандидат на захват — предмет, ближайший к линии хвата
+    this.grabItem = null; this.grabReady = false;
+    if (!this.holding) {
+      let best = HAND.grabDistance;
+      for (const it of items) {
+        if (it.banked) continue;
+        const d = this._grabDistance(it);
+        if (d < best) { best = d; this.grabItem = it; }
+      }
+      this.grabReady = !!this.grabItem;
+    }
+    if (this.gripInput && !this.holding && this.curl >= HAND.grabThreshold && this.regrab <= 0 && this.gripPressTime < 0.6 && this.grabReady) this._attach(this.grabItem);
     if (!this.gripInput && this.holding) this.release('open');
 
     // после отпускания рука на мгновение «прозрачна» для слитка, чтобы не выстрелить им
     if (this.ghost > 0) {
       this.ghost -= dt;
-      if (this.ghost <= 0 || !this._overlapsBar(bar)) this.ghost = 0;
+      if (this.ghost <= 0 || !this._overlapsItem(this.lastItem)) this.ghost = 0;
     }
     const pushing = !this.holding && this.ghost <= 0;
     this.handBody.collisionFilterMask = pushing ? GROUP.BAR : 0;
     this.fingerBody.collisionFilterMask = pushing && this.curl < 0.3 ? GROUP.BAR : 0;
   }
 
-  _canGrab(bar) {
-    const c = bar.position(), qi = _q2.copy(bar.quaternion()).invert();
+  /** Расстояние от линии хвата ладони до поверхности предмета. */
+  _grabDistance(item) {
+    item.colliders();
     let best = Infinity;
     for (let i = 0; i <= 6; i++) {
       _b.fromArray(G.gripAxis[0]).lerp(_c.fromArray(G.gripAxis[1]), i / 6).applyQuaternion(this.quat).add(this.wrist);
-      best = Math.min(best, pointBoxDistance(_b, c, qi, bar.half));
+      best = Math.min(best, item.distanceTo(_b));
     }
-    return best < HAND.grabDistance;
+    return best;
   }
 
-  _overlapsBar(bar) {
-    if (!bar) return false;
-    const col = bar.collider();
+  _overlapsItem(item) {
+    if (!item || item.banked) return false;
+    const cols = item.colliders();
     for (const s of this.local) {
       _b.copy(s.p).applyQuaternion(this.quat).add(this.wrist);
-      if (sphereVsCollider(_b.x, _b.y, _b.z, s.r, col, _n) > 0.004) return true;
+      for (const col of cols) if (sphereVsCollider(_b.x, _b.y, _b.z, s.r, col, _n) > 0.004) return true;
     }
     return false;
   }
 
-  _attach(bar) {
-    this.holding = true; this.bar = bar; this.slipTimer = 0;
+  _attach(item) {
+    this.holding = true; this.item = item; this.slipTimer = 0;
+    this.slipSpeed = Math.min(this.levelSlipSpeed, item.type.slipSpeed ?? Infinity);
     const qi = _q.copy(this.quat).invert();
-    this.barRelQuat.copy(qi).multiply(bar.quaternion());
-    this.barRelPos.copy(bar.position()).sub(this.wrist).applyQuaternion(qi);
-    this.heldLocal.length = 0;
-    const step = (BAR.size[0] - 2 * BAR.sphereR) / (BAR.sphereCols - 1);
-    for (const z of BAR.sphereRows) for (let i = 0; i < BAR.sphereCols; i++) {
-      this.heldLocal.push(new THREE.Vector3(-BAR.size[0] / 2 + BAR.sphereR + i * step, 0, z).applyQuaternion(this.barRelQuat).add(this.barRelPos));
+    this.barRelQuat.copy(qi).multiply(item.quaternion());
+    this.barRelPos.copy(item.position()).sub(this.wrist).applyQuaternion(qi);
+    // сферы предмета — в системе координат кисти
+    this.heldLocal.length = 0; this.heldR.length = 0;
+    for (const s of item.heldSpheres.slice(0, HAND.maxHeldSpheres)) {
+      this.heldLocal.push(s.p.clone().applyQuaternion(this.barRelQuat).add(this.barRelPos));
+      this.heldR.push(s.r);
     }
-    // подбираем сгиб пальцев так, чтобы они легли на слиток, а не прошли сквозь него
-    const col = { type: 'box', c: this.barRelPos, h: bar.half, q: this.barRelQuat, qi: this.barRelQuat.clone().invert() };
-    // (самый сильный сгиб, при котором пальцы ещё касаются слитка; если не касаются нигде — где зазор минимален)
+    // подбираем сгиб пальцев так, чтобы они легли на предмет, а не прошли сквозь него
+    // (самый сильный сгиб, при котором пальцы ещё касаются предмета; если не касаются нигде — где зазор минимален)
+    const cols = item.collidersAt(this.barRelPos, this.barRelQuat);
     let touching = -1, nearest = 0.15, nearestGap = Infinity;
     for (let c = 0.1; c <= HAND.holdCurl + 1e-6; c += 0.05) {
       let deep = 0, gap = Infinity;
       for (const s of this.local) {
         if (!s.open) continue;
         _b.lerpVectors(s.open, s.closed, c);
-        deep = Math.max(deep, sphereVsCollider(_b.x, _b.y, _b.z, s.r, col, _n));
-        gap = Math.min(gap, pointBoxDistance(_b, col.c, col.qi, col.h) - s.r);
+        for (const col of cols) {
+          deep = Math.max(deep, sphereVsCollider(_b.x, _b.y, _b.z, s.r, col, _n));
+          gap = Math.min(gap, pointPrimDistance(_b, col) - s.r);
+        }
       }
       if (deep > 0.012) continue;
       if (gap < 0.006) touching = c;
       if (gap < nearestGap) { nearestGap = gap; nearest = c; }
     }
     this.holdCurl = touching >= 0 ? touching : nearest;
-    this.constraint = new CANNON.LockConstraint(this.handBody, bar.body, { maxForce: HAND.lockMaxForce });
+    this.constraint = new CANNON.LockConstraint(this.handBody, item.body, { maxForce: HAND.lockMaxForce });
     this.world.addConstraint(this.constraint);
-    bar.setHeld(true);
-    this.events.push({ type: 'grab' });
+    item.setHeld(true);
+    this.events.push({ type: 'grab', item });
   }
 
   _detach() {
     if (this.constraint) { this.world.removeConstraint(this.constraint); this.constraint = null; }
-    if (this.bar) this.bar.setHeld(false);
-    this.holding = false; this.bar = null; this.heldLocal.length = 0;
+    if (this.item) { this.item.setHeld(false); this.lastItem = this.item; }
+    this.holding = false; this.item = null; this.heldLocal.length = 0; this.heldR.length = 0;
   }
 
   /** reason: 'open' | 'slip' | 'hot' */
   release(reason = 'open', lock = 0) {
     if (!this.holding) return;
+    const item = this.item;
     this._detach();
     this.regrab = HAND.regrabDelay; this.ghost = 1.0;
     if (lock > 0) this.gripLock = lock;
-    this.events.push({ type: 'release', reason });
+    this.events.push({ type: 'release', reason, item });
   }
 
   /** Мировые центры сфер руки (для лазеров): callback(x, y, z, r). Слиток не считается. */
