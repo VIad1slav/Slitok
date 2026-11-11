@@ -500,6 +500,15 @@ export class Hand {
     this.events.push({ type: 'release', reason, item });
   }
 
+  /** Задевает ли рука (вместе с предметом в ней) коллайдер? Для подвижных преград вроде заслонки. */
+  touches(col, margin = 0) {
+    const off = this.off;
+    for (let i = 0; i < this.count; i++) {
+      if (sphereVsCollider(this.pos.x + off[i * 4], this.pos.y + off[i * 4 + 1], this.pos.z + off[i * 4 + 2], off[i * 4 + 3] + margin, col, _n) > 0) return true;
+    }
+    return false;
+  }
+
   /** Мировые центры сфер руки (для лазеров): callback(x, y, z, r). Слиток не считается. */
   forEachArmSphere(fn) {
     const off = this.off;

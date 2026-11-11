@@ -7,7 +7,8 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { WORLD } from './config.js';
-import { GROUP } from './box.js';
+import { GROUP, wallFrame, holeExtents } from './box.js';
+import { GLASS } from './config.js';
 import { T } from './strings.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
@@ -300,7 +301,139 @@ class CameraTrap {
   }
 }
 
-const TYPES = { plate: PlateTrap, lasers: LaserTrap, hot: HotTrap, spinner: SpinnerTrap, camera: CameraTrap };
+/**
+ * Сдвижная заслонка на отверстии. Цикл: открыта (open, с) → предупреждение (warn) → закрывается (closing) → закрыта (closed).
+ * Заслонка не давит руку: доезжает до неё и останавливается. Упирается дольше 0,3 с — тревога с отсчётом alarmSeconds.
+ *   hole — номер отверстия уровня; phase — сдвиг начала цикла; autoNeed — автопилоту: сколько секунд должно оставаться до закрытия.
+ */
+class ShutterTrap {
+  constructor(def, env) {
+    const d = this.def = { open: 4.5, warn: 0.7, closing: 0.5, closed: 2, phase: 0, alarmSeconds: 3, autoNeed: 3.2, hole: 0, ...def };
+    this.env = env; this.k = 0; this.state = 'open'; this.left = d.open; this.blocked = 0; this.tripped = false;
+    const lvl = env.level, hole = lvl.box.holes[d.hole], f = wallFrame(hole.wall, lvl.box.size), [a, b] = holeExtents(hole);
+    const u = new THREE.Vector3(...f.u), v = new THREE.Vector3(...f.v), n = new THREE.Vector3().crossVectors(u, v);
+    const origin = new THREE.Vector3(lvl.box.pos[0], WORLD.tableY, lvl.box.pos[1]);
+    const o = new THREE.Vector3(...f.o);
+    const out = o.clone().sub(new THREE.Vector3(0, lvl.box.size[1] / 2, 0)).dot(n) >= 0 ? 1 : -1;      // наружу из коробки
+    this.half = new THREE.Vector3(a + 0.012, b + 0.012, 0.004);
+    this.travel = 2 * a + 0.03;
+    this.closedPos = origin.clone().add(o).addScaledVector(u, hole.offset[0]).addScaledVector(v, hole.offset[1]).addScaledVector(n, out * (GLASS.thickness / 2 + 0.009));
+    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, v, n));
+    // в какую сторону уезжает открытая пластина: def.dir (+1 / -1 вдоль оси стенки) или автоматически — прочь от «сейфа»,
+    // чтобы она не торчала там, куда игрок несёт добычу
+    const safe = new THREE.Vector3(lvl.safe.pos[0], this.closedPos.y, lvl.safe.pos[1]);
+    const dir = d.dir ?? (this.closedPos.clone().addScaledVector(u, this.travel).distanceTo(safe) >= this.closedPos.clone().addScaledVector(u, -this.travel).distanceTo(safe) ? 1 : -1);
+    this.u = u.clone().multiplyScalar(dir);
+    this.col = { type: 'box', kind: 'shutter', c: this.closedPos.clone().addScaledVector(this.u, this.travel), h: this.half, q, qi: q.clone().invert() };
+    this.colliders = [this.col];
+    this._try = { ...this.col, c: new THREE.Vector3() };
+    this.body = new CANNON.Body({ type: CANNON.Body.KINEMATIC, material: env.staticMaterial, collisionFilterGroup: GROUP.STATIC, collisionFilterMask: GROUP.BAR });
+    this.body.addShape(new CANNON.Box(new CANNON.Vec3(this.half.x, this.half.y, this.half.z)));
+    this.body.quaternion.set(q.x, q.y, q.z, q.w);
+    this.body.userData = { kind: 'shutter' };
+    env.world.addBody(this.body);
+    // пластина (модель из Blender — единичная, растягивается под отверстие), направляющие и лампа
+    this.group = new THREE.Group(); env.scene.add(this.group);
+    const glb = env.models?.shutter;
+    this.usedGlb = !!glb;
+    this.plate = glb ? glb.clone(true) : new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), env.M.steel);
+    this.plate.traverse((m) => { if (m.isMesh) { m.material = /metal/i.test(m.material?.name || '') ? env.M.metal : env.M.steel; m.castShadow = true; } });
+    this.plate.scale.set(this.half.x * 2, this.half.y * 2, this.half.z * 2);
+    this.plate.quaternion.copy(q);
+    this.group.add(this.plate);
+    for (const s of [-1, 1]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(this.half.x * 2 + this.travel, 0.012, 0.014), env.M.metal);
+      rail.quaternion.copy(q);
+      rail.position.copy(this.closedPos).addScaledVector(this.u, this.travel / 2).addScaledVector(v, s * (this.half.y + 0.008));
+      this.group.add(rail);
+    }
+    this.lamp = new THREE.Mesh(new THREE.SphereGeometry(0.008, 10, 8), new THREE.MeshBasicMaterial({ color: 0x20ff60, toneMapped: false }));
+    this.lamp.position.copy(this.closedPos).addScaledVector(v, this.half.y + 0.03).addScaledVector(this.u, -this.half.x);
+    this.group.add(this.lamp);
+    this._place();
+  }
+  _place() {
+    this.col.c.copy(this.closedPos).addScaledVector(this.u, this.travel * (1 - this.k));
+    this.plate.position.copy(this.col.c);
+    this.body.position.set(this.col.c.x, this.col.c.y, this.col.c.z);
+  }
+  step(dt, ctx) {
+    const d = this.def, cycle = d.open + d.warn + d.closing + d.closed, t = (((ctx.time + d.phase) % cycle) + cycle) % cycle;
+    const prev = this.state;
+    let want;
+    if (t < d.open) { this.state = 'open'; this.left = d.open - t; want = 0; }
+    else if (t < d.open + d.warn) { this.state = 'warn'; this.left = 0; want = 0; }
+    else { this.state = t < d.open + d.warn + d.closing ? 'closing' : 'closed'; this.left = 0; want = 1; }
+    if (prev !== this.state) {
+      if (this.state === 'warn') { ctx.audio.beep(900, 0.1, 0.05); ctx.audio.beep(900, 0.1, 0.05, 0.2); ctx.audio.beep(900, 0.1, 0.05, 0.4); ctx.game.toast(T.shutterWarn); }
+      else if (this.state === 'closed' && this.k > 0.98) ctx.audio.thud(0.6);
+      else if (this.state === 'open') ctx.audio.click();
+    }
+    const rate = dt / (want > this.k ? d.closing : 0.4);
+    const next = want > this.k ? Math.min(want, this.k + rate) : Math.max(want, this.k - rate);
+    if (next > this.k) {   // закрываемся: дальше не едем, если упёрлись в руку
+      this._try.c.copy(this.closedPos).addScaledVector(this.u, this.travel * (1 - next));
+      if (ctx.hand.touches(this._try, 0.002)) {
+        this.blocked += dt;
+        if (this.blocked > 0.3 && !this.tripped) { this.tripped = true; ctx.game.alarm(d.alarmSeconds, T.shutterAlarm, false, T.shutterFail); }
+        return;
+      }
+    }
+    this.blocked = 0;
+    if (next !== this.k) { this.k = next; this._place(); }
+  }
+  /** Автопилоту: входить, только если до закрытия осталось достаточно времени. */
+  autoReady(phase) { return phase !== 'enter' || (this.state === 'open' && this.k < 0.05 && this.left >= this.def.autoNeed); }
+  update(time) {
+    this.lamp.material.color.set(this.state === 'open' ? 0x20ff60 : this.state === 'warn' ? (Math.sin(time * 30) > 0 ? 0xffc020 : 0x402800) : 0xff2010);
+  }
+  dispose() {
+    this.env.scene.remove(this.group); this.env.world.removeBody(this.body);
+    this.lamp.geometry.dispose(); this.lamp.material.dispose();
+  }
+}
+
+/**
+ * Весы под добычей. Правило одно: вес на весах не должен упасть ниже min (кг) дольше grace секунд — иначе тревога
+ * с отсчётом alarmSeconds. Перегруз разрешён, поэтому сначала кладут груз, потом снимают слиток.
+ * Считаются предметы, которые лежат на подставке и не в руке.
+ */
+class ScaleTrap {
+  constructor(def, env) {
+    this.def = { min: 1.6, grace: 0.4, alarmSeconds: 3, ...def };
+    this.env = env; this.low = 0; this.tripped = false; this.weight = 0;
+    const p = env.level.pedestal, [w, h, d] = p.size;
+    this.cx = env.level.box.pos[0] + p.pos[0]; this.cz = env.level.box.pos[1] + p.pos[1];
+    this.hw = w / 2 + 0.012; this.hd = d / 2 + 0.012; this.top = WORLD.tableY + h;
+    this.mat = new THREE.MeshStandardMaterial({ color: 0x202226, metalness: 0.8, roughness: 0.35, emissive: 0x18ff60, emissiveIntensity: 1 });
+    this.mesh = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, 0.006, d * 0.9), this.mat);
+    this.mesh.position.set(this.cx, this.top + 0.001, this.cz);
+    env.scene.add(this.mesh);
+  }
+  step(dt, ctx) {
+    let weight = 0;
+    for (const it of ctx.items) {
+      if (it.banked || it.held) continue;
+      const p = it.body.position;
+      if (Math.abs(p.x - this.cx) < this.hw && Math.abs(p.z - this.cz) < this.hd && p.y > this.top && p.y < this.top + 0.2 && it.speed() < 1) weight += it.def.mass;
+    }
+    this.weight = weight;
+    const d = this.def;
+    if (ctx.time > 0.5 && weight < d.min && !this.tripped) {
+      this.low += dt;
+      if (this.low > d.grace) { this.tripped = true; ctx.audio.click(); ctx.game.alarm(d.alarmSeconds, T.scaleAlarm, false, T.scaleFail); }
+    } else this.low = 0;
+    ctx.game.hud.meter = { label: T.scaleMeter, value: Math.min(1, weight / (d.min * 2)), mark: 0.5, good: weight >= d.min };
+  }
+  update(time) {
+    const ok = this.weight >= this.def.min;
+    this.mat.emissive.set(this.tripped ? 0xff1010 : ok ? 0x18ff60 : 0xffb020);
+    this.mat.emissiveIntensity = this.tripped ? 1.5 + Math.sin(time * 20) : ok ? 0.9 : 1.2 + 0.5 * Math.sin(time * 16);
+  }
+  dispose() { this.env.scene.remove(this.mesh); this.mesh.geometry.dispose(); this.mat.dispose(); }
+}
+
+const TYPES = { shutter: ShutterTrap, scale: ScaleTrap, plate: PlateTrap, lasers: LaserTrap, hot: HotTrap, spinner: SpinnerTrap, camera: CameraTrap };
 
 export function createTraps(level, env) {
   return (level.traps || []).map((def) => new TYPES[def.type](def, { ...env, item: env.items[def.item ?? 0] }));

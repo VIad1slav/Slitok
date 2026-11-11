@@ -3,6 +3,7 @@
 // Система координат: X вправо, Y вверх, Z на игрока. Стол: y = WORLD.tableY.
 // box.pos    — [x, z] центра дна коробки в мире.
 // box.size   — [ширина X, высота Y, глубина Z].
+// inner      — внутренние перегородки коробки (см. innerFrame в src/box.js): [{ axis, at, from, to, height, hole? }].
 // holes      — отверстия. wall: 'top' | 'front' (к игроку) | 'back' | 'left' | 'right'.
 //              shape 'rect' (size: [u, v]) или 'circle' (radius). offset [u, v] от центра стенки.
 //              Оси стенки: top — u=X, v=Z; front/back — u=X, v=Y; left/right — u=Z, v=Y.
@@ -262,6 +263,133 @@ export const LEVELS = [
       { type: 'camera', away: 5.5, warn: 0.8, watch: 2.3 },
     ],
     stars: { three: { time: 35, touches: 2 }, two: { time: 70, touches: 5 } },
+  },
+  // ------------------------------------------------------------------ Банк
+  {
+    id: 19,
+    name: 'Три слитка',
+    hint: 'Слитков три, сейф один. Носи по одному: рука держит только один предмет.',
+    box: { pos: [-0.12, -0.1], size: [0.5, 0.3, 0.5], holes: [{ wall: 'top', shape: 'rect', size: [0.4, 0.38], offset: [0, 0.04] }] },
+    pedestal: { size: [0.34, 0.04, 0.26], pos: [0, 0] },
+    loot: [
+      { type: 'bar', pos: [0, 0.04, 0], yaw: 90 },
+      { type: 'bar', pos: [0.1, 0.04, 0], yaw: 90 },
+      { type: 'bar', pos: [-0.1, 0.04, 0], yaw: 90 },
+    ],
+    hand: { pos: [-0.12, 1.36, 0.0], yaw: 0, pitch: -60 },
+    safe: { pos: [0.5, 0.2], radius: 0.17 },
+    stars: { three: { time: 75, touches: 2 }, two: { time: 145, touches: 5 } },
+  },
+  {
+    id: 20,
+    name: 'Барьер',
+    hint: 'Окно высоко, внутри барьер. Зажми ПКМ и наклони кисть вниз: рука должна нырять сверху и выходить по той же линии.',
+    box: {
+      pos: [-0.1, -0.12], size: [0.46, 0.42, 0.44],
+      holes: [{ wall: 'front', shape: 'rect', size: [0.27, 0.2], offset: [0, 0.09] }],
+      inner: [{ axis: 'x', at: 0.1, from: -0.23, to: 0.23, height: 0.1 }],
+    },
+    pedestal: null,
+    bar: { pos: [0, 0, -0.08], yaw: 0, mass: 1.5, friction: 0.6 },
+    hand: { pos: [-0.1, 1.42, 0.4], yaw: 0, pitch: -40 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    stars: { three: { time: 25, touches: 1 }, two: { time: 45, touches: 4 } },
+  },
+  {
+    id: 21,
+    name: 'Заслонка',
+    hint: 'Отверстие закрывает стальная заслонка. Жёлтая лампа и щелчки — сейчас закроется. Войди и выйди за одно открытие.',
+    box: { pos: [-0.2, -0.1], size: [0.58, 0.28, 0.4], holes: [{ wall: 'right', shape: 'rect', size: [0.24, 0.17], offset: [0, -0.02] }] },
+    pedestal: { size: [0.32, 0.03, 0.14], pos: [-0.03, 0] },
+    bar: { pos: [-0.03, 0.03, 0], yaw: 0, mass: 1.5, friction: 0.6 },
+    hand: { pos: [0.4, 1.03, -0.1], yaw: 90, pitch: 0 },
+    safe: { pos: [0.52, 0.22], radius: 0.16 },
+    traps: [{ type: 'shutter', open: 4.5, warn: 0.7, closing: 0.5, closed: 2 }],
+    stars: { three: { time: 20, touches: 1 }, two: { time: 40, touches: 4 } },
+  },
+  {
+    id: 22,
+    name: 'Подмена',
+    hint: 'Слиток лежит на весах: вес не должен упасть. Сначала положи на весы груз со стола, потом забирай слиток.',
+    box: { pos: [-0.12, -0.1], size: [0.5, 0.3, 0.5], holes: [{ wall: 'top', shape: 'rect', size: [0.4, 0.38], offset: [0, 0.04] }] },
+    pedestal: { size: [0.34, 0.05, 0.2], pos: [0, 0], plate: true },
+    loot: [
+      { type: 'bar', pos: [-0.07, 0.05, 0], yaw: 90, mass: 2 },
+      { type: 'weight', pos: [0.42, 0, -0.14], role: 'prop', mass: 2 },
+    ],
+    hand: { pos: [-0.12, 1.36, 0.0], yaw: 0, pitch: -60 },
+    safe: { pos: [0.5, 0.22], radius: 0.16 },
+    traps: [{ type: 'scale', min: 1.6, grace: 0.4, alarmSeconds: 3 }],
+    stars: { three: { time: 45, touches: 1 }, two: { time: 85, touches: 4 } },
+  },
+  {
+    id: 23,
+    name: 'Два окна',
+    hint: 'Внутри вторая стенка, и её окно смещено. Поверни кисть (Q / E) так, чтобы рука прошла по прямой через оба окна.',
+    box: {
+      pos: [-0.1, -0.12], size: [0.5, 0.28, 0.44],
+      holes: [{ wall: 'front', shape: 'rect', size: [0.17, 0.13], offset: [0, -0.05] }],
+      inner: [{ axis: 'x', at: 0.08, from: -0.25, to: 0.25, height: 0.28, hole: { shape: 'rect', size: [0.17, 0.13], offset: [0.049, -0.05] } }],
+    },
+    pedestal: null,
+    bar: { pos: [0.105, 0, -0.08], yaw: 70.7, mass: 1.5, friction: 0.6 },
+    hand: { pos: [-0.2, 1.0, 0.42], yaw: -19.3, pitch: 0 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    stars: { three: { time: 25, touches: 2 }, two: { time: 50, touches: 5 } },
+  },
+  {
+    id: 24,
+    name: 'Монеты',
+    hint: 'Три стопки монет друг за другом и заслонка. Каждая ходка — за одно открытие.',
+    box: { pos: [-0.1, -0.12], size: [0.46, 0.28, 0.44], holes: [{ wall: 'front', shape: 'circle', radius: 0.08, offset: [0, -0.04] }] },
+    pedestal: { size: [0.16, 0.02, 0.3], pos: [0, 0.02] },
+    loot: [
+      { type: 'coins', pos: [0, 0.02, 0.1] },
+      { type: 'coins', pos: [0, 0.02, 0.02] },
+      { type: 'coins', pos: [0, 0.02, -0.06] },
+    ],
+    hand: { pos: [-0.1, 1.02, 0.4], yaw: 0, pitch: 0 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    traps: [{ type: 'shutter', open: 4.5, warn: 0.7, closing: 0.5, closed: 2 }],
+    stars: { three: { time: 65, touches: 1 }, two: { time: 125, touches: 4 } },
+  },
+  {
+    id: 25,
+    name: 'Смена караула',
+    hint: 'Три слитка и быстрая заслонка: на каждую ходку около пяти секунд. Не жадничай — жди следующего открытия.',
+    box: { pos: [-0.1, -0.12], size: [0.5, 0.28, 0.44], holes: [{ wall: 'front', shape: 'rect', size: [0.38, 0.135], offset: [0, -0.045] }] },
+    pedestal: { size: [0.4, 0.02, 0.26], pos: [0, -0.02] },
+    loot: [
+      { type: 'bar', pos: [0, 0.02, -0.02], yaw: 90, mass: 1.5 },
+      { type: 'bar', pos: [0.11, 0.02, -0.02], yaw: 90, mass: 1.5 },
+      { type: 'bar', pos: [-0.11, 0.02, -0.02], yaw: 90, mass: 1.5 },
+    ],
+    hand: { pos: [-0.1, 1.0, 0.4], yaw: 0, pitch: 0 },
+    safe: { pos: [0.52, 0.2], radius: 0.17 },
+    traps: [{ type: 'shutter', open: 5, warn: 0.7, closing: 0.5, closed: 1.8, autoNeed: 4.3 }],
+    stars: { three: { time: 70, touches: 1 }, two: { time: 135, touches: 4 } },
+  },
+  {
+    id: 26,
+    name: 'Хранилище',
+    hint: 'Высокое окно с заслонкой, барьер и весы. Нырни с грузом, положи его на весы и тем же заходом забери слиток.',
+    box: {
+      pos: [-0.1, -0.12], size: [0.46, 0.42, 0.44],
+      holes: [{ wall: 'front', shape: 'rect', size: [0.34, 0.2], offset: [0, 0.09] }],
+      inner: [{ axis: 'x', at: 0.1, from: -0.23, to: 0.23, height: 0.07 }],
+    },
+    pedestal: { size: [0.32, 0.05, 0.24], pos: [0, -0.09], plate: true },
+    loot: [
+      { type: 'bar', pos: [-0.07, 0.05, -0.09], yaw: 90, mass: 2 },
+      { type: 'weight', pos: [0.38, 0, 0.34], role: 'prop', mass: 2 },
+    ],
+    hand: { pos: [0.2, 1.42, 0.5], yaw: 0, pitch: -40 },
+    safe: { pos: [0.52, 0.12], radius: 0.16 },
+    traps: [
+      { type: 'scale', min: 1.6, grace: 0.4, alarmSeconds: 3 },
+      { type: 'shutter', open: 7, warn: 0.7, closing: 0.5, closed: 2, autoNeed: 5.5 },
+    ],
+    stars: { three: { time: 65, touches: 3 }, two: { time: 125, touches: 6 } },
   },
 ];
 

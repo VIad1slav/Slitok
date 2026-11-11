@@ -61,6 +61,17 @@ for (const lvl of LEVELS) {
       notes.push(`${hole.wall} ${circle ? '⌀' + (2 * a).toFixed(3) : (2 * a).toFixed(2) + '×' + (2 * b).toFixed(2)}, глубина ${depth.toFixed(2)}${lvl.monkey ? ', поперёк не лезет' : ''}`);
     }
   }
+  // внутренние перегородки: внутри коробки, не выше её, окно — внутри панели
+  (lvl.box.inner || []).forEach((p, i) => {
+    const along = p.axis === 'x' ? w : d, across = p.axis === 'x' ? d : w;
+    if (p.from < -along / 2 - 1e-6 || p.to > along / 2 + 1e-6 || p.from >= p.to || Math.abs(p.at) > across / 2 - 0.02 || p.height > h + 1e-6) problems.push(`перегородка ${i} выходит за коробку`);
+    if (p.hole) {
+      const [a, b] = holeExtents(p.hole), [ou, ov] = p.hole.offset;
+      if (Math.abs(ou) + a > (p.to - p.from) / 2 - 0.015 || Math.abs(ov) + b > p.height / 2 - 0.015) problems.push(`окно перегородки ${i} выходит за панель`);
+      if (2 * Math.min(a, b) < forearmD + MARGIN) problems.push(`в окно перегородки ${i} не пролезает рука`);
+    }
+    notes.push(p.hole ? 'перегородка с окном' : `барьер ${(p.height * 100).toFixed(0)} см`);
+  });
   const [sx, sz] = lvl.safe.pos, r = lvl.safe.radius;
   if (Math.abs(sx) + r > WORLD.tableSize[0] / 2 || Math.abs(sz) + r > WORLD.tableSize[2] / 2) problems.push('«сейф» выходит за край стола');
   if (Math.abs(sx - lvl.box.pos[0]) < w / 2 + r && Math.abs(sz - lvl.box.pos[1]) < d / 2 + r) problems.push('«сейф» пересекается с коробкой');

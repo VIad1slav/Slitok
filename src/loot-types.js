@@ -76,6 +76,30 @@ export const LOOT = {
     model: 'crown',
     material: 'crown',
   },
+  // Стопка монет: маленький цилиндр ⌀4 см, высота 4 см.
+  coins: {
+    name: 'Стопка монет',
+    failFall: 'Монеты упали со стола',
+    bounds: [0.04, 0.04, 0.04],
+    shapes: [{ type: 'cylinder', radius: 0.02, height: 0.04 }],
+    held: [[0, 0, 0, 0.02]],
+    mass: 0.3,
+    friction: 0.7,
+    model: 'coins',
+    material: 'brass',
+  },
+  // Груз для подмены на весах: стальной брусок. В сейф не идёт (role: 'prop').
+  weight: {
+    name: 'Груз',
+    failFall: 'Груз упал со стола',
+    bounds: [0.07, 0.06, 0.07],
+    shapes: [{ type: 'box', half: [0.035, 0.03, 0.035] }],
+    held: [[0, 0, 0, 0.037]],
+    mass: 2,
+    friction: 0.7,
+    model: 'weight',
+    material: 'steel',
+  },
 };
 
 /**

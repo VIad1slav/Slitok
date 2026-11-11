@@ -26,6 +26,7 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.
 const BASELINE = {
   1: 6.48, 2: 4.88, 3: 49.06, 4: 7.18, 5: 9.38, 6: 8.43, 7: 6.5, 8: 5.57,   // MVP; уровни 3 и 8 — после перевода автопилота на общие шаги (было 56.83 и 5.82)
   9: 7.13, 10: 5.44, 11: 52.72, 12: 6.78, 13: 8.17, 14: 5.46, 15: 7.96, 16: 12.27, 17: 14.38, 18: 11.07,
+  19: 23.59, 20: 6.83, 21: 4.56, 22: 14.08, 23: 7.71, 24: 20.32, 25: 21.92, 26: 20.5,
 };
 const TIME_TOLERANCE = 0.10;
 
@@ -161,6 +162,46 @@ check(museum.tap.cracks === 1 && !museum.tap.broken && museum.tap.state === 'pla
 check(museum.still.state === 'watch' && museum.still.meter === 0 && museum.still.game === 'playing', `камера смотрит, рука неподвижна — тревоги нет (полоска ${museum.still.meter})`);
 check(/Камера/.test(museum.moved.result || ''), `камера смотрит, рука движется — ${museum.moved.result}`);
 
+// --- банк: заслонка не давит руку, весы ловят пропажу, перегородка не пускает руку
+const bank = await page.evaluate(() => {
+  const g = window.__gg, S = 1 / 120, out = {};
+  const run = (s, fn) => { for (let i = 0; i < s * 120 && g.state === 'playing'; i++) { if (fn) fn(); g._fixedStep(S); } };
+  // заслонка: рука стоит в отверстии, пока та закрывается
+  g.startLevelById(21);
+  const sh = g.traps.find((t) => t.def.type === 'shutter'), h = g.hand, hole = { x: 0.09, y: 1.02, z: -0.1 };
+  run(2.5, () => h.target.set(hole.x + 0.02, hole.y, hole.z));
+  for (let i = 0; i < 12 * 120 && g.state === 'playing' && sh.state !== 'closed'; i++) g._fixedStep(S);
+  run(0.6);
+  out.shutter = { k: +sh.k.toFixed(2), alarm: !!g.alarmState, alarmText: g.alarmState?.text, handX: +h.pos.x.toFixed(3) };
+  // закрытая заслонка не пускает руку внутрь
+  g.startLevelById(21);
+  const sh2 = g.traps.find((t) => t.def.type === 'shutter');
+  for (let i = 0; i < 12 * 120 && g.state === 'playing' && !(sh2.state === 'closed' && sh2.k > 0.99); i++) g._fixedStep(S);
+  run(1.2, () => h.target.set(-0.2, hole.y, hole.z));
+  out.closed = { handX: +h.pos.x.toFixed(3), wallX: 0.09, alarm: !!g.alarmState };
+  // весы: слиток унесён без груза — тревога
+  g.startLevelById(22);
+  const bar = g.items[0];
+  run(1.0);
+  out.scaleCalm = !g.alarmState;
+  bar.body.position.set(0.3, 1.0, 0.3); bar.body.velocity.set(0, 0, 0);
+  run(1.0);
+  out.scale = { alarm: !!g.alarmState, text: g.alarmState?.text };
+  // перегородка: рука идёт горизонтально сквозь барьер уровня 20 — должна упереться
+  // перегородка: рука ныряет прямо в барьер уровня 20 (он на z = -0.02, высотой до y = 1.0) — пройти сквозь него нельзя
+  g.startLevelById(20);
+  run(1.5, () => h.target.set(-0.1, 1.25, 0.2));
+  run(2.5, () => h.target.set(-0.1, 0.99, 0.06));
+  let inside = 0; h.forEachArmSphere((x, y, z, r) => { if (y < 0.995 && Math.abs(z + 0.02) < r * 0.6) inside++; });
+  out.barrier = { inside, handY: +h.pos.y.toFixed(3) };
+  g.toMenu();
+  return out;
+});
+check(bank.shutter.k < 0.9 && bank.shutter.alarm, `заслонка упёрлась в руку и остановилась (закрыта на ${Math.round(bank.shutter.k * 100)} %), тревога: «${bank.shutter.alarmText}»`);
+check(bank.closed.handX > bank.closed.wallX && !bank.closed.alarm, `закрытая заслонка не пускает руку (x = ${bank.closed.handX}, стенка ${bank.closed.wallX})`);
+check(bank.scaleCalm && bank.scale.alarm, `весы: слиток на месте — тихо; унесён без груза — «${bank.scale.text}»`);
+check(bank.barrier.inside === 0, `рука не прошла сквозь внутренний барьер (сфер руки внутри барьера: ${bank.barrier.inside}, высота кисти ${bank.barrier.handY} м)`);
+
 // --- общая модель добычи
 const loot = await page.evaluate(async () => {
   const g = window.__gg, { LOOT } = await import('/src/loot-types.js'), { LEVELS } = await import('/src/levels.js');
@@ -238,15 +279,18 @@ const perf = await page.evaluate(async () => {
   g.stage.renderer.info.autoReset = false;
   load(1, 0.5); time(60);                               // прогрев
   for (const e of H.campaignOrder()) {
-    let ms = Infinity, ref = Infinity, calls = 0, tris = 0;
-    for (let round = 0; round < 5; round++) {
+    let calls = 0, tris = 0;
+    const pairs = [];
+    for (let round = 0; round < 7; round++) {
       load(e.level.id, round ? 0.3 : 2.5);
       if (!round) { g.stage.renderer.info.reset(); g.stage.render(); calls = g.stage.renderer.info.render.calls; tris = g.stage.renderer.info.render.triangles; }
-      time(8); ms = Math.min(ms, time());
+      time(8); const ms = Math.min(time(), time());
       load(1, 0.3);
-      time(8); ref = Math.min(ref, time());
+      time(8); pairs.push({ ms, ref: Math.min(time(), time()) });
     }
-    out.push({ id: e.level.id, name: e.level.name, calls, tris, ms, ref });
+    // медиана отношений по парам «уровень — эталон»: скачок режима видеокарты портит одну-две пары, но не медиану
+    pairs.sort((a, b) => a.ms / a.ref - b.ms / b.ref);
+    out.push({ id: e.level.id, name: e.level.name, calls, tris, ms: pairs[3].ms, ref: pairs[3].ref });
   }
   g.stage.renderer.info.autoReset = true; g.timeScale = 1; g.toMenu();
   return out;

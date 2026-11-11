@@ -127,7 +127,7 @@ export class UI {
       </div>
       <div class="tr">
         <div class="cam"><kbd>C</kbd> вид сбоку <b class="camuses">3</b></div>
-        <div class="meter" hidden><span class="mlabel"></span><div class="mbar"><i></i></div></div>
+        <div class="meter" hidden><span class="mlabel"></span><div class="mbar"><i></i><b class="mmark" hidden></b></div></div>
       </div>
       <div class="alarm" hidden><span class="atext"></span><b class="acount"></b></div>
       <div class="toast" hidden></div>
@@ -136,7 +136,7 @@ export class UI {
       <div class="clickme" hidden>Кликни, чтобы захватить мышь</div>`;
     this.root.append(hud);
     const q = (s) => hud.querySelector(s);
-    this.$ = { lootrow: q('.lootrow'), lootlabel: q('.lootlabel'), loot: q('.loot'), lvl: q('.lvl'), timer: q('.timer'), limit: q('.limit'), touches: q('.touches'), pips: q('.pips'), camuses: q('.camuses'), meter: q('.meter'), mlabel: q('.mlabel'), mbar: q('.mbar i'), alarm: q('.alarm'), atext: q('.atext'), acount: q('.acount'), toast: q('.toast'), grab: q('.grab'), grabText: q('.grab span'), hint: q('.hint'), clickme: q('.clickme') };
+    this.$ = { lootrow: q('.lootrow'), lootlabel: q('.lootlabel'), loot: q('.loot'), lvl: q('.lvl'), timer: q('.timer'), limit: q('.limit'), touches: q('.touches'), pips: q('.pips'), camuses: q('.camuses'), meter: q('.meter'), mlabel: q('.mlabel'), mbar: q('.mbar i'), mmark: q('.mmark'), alarm: q('.alarm'), atext: q('.atext'), acount: q('.acount'), toast: q('.toast'), grab: q('.grab'), grabText: q('.grab span'), hint: q('.hint'), clickme: q('.clickme') };
     this.vignette = el('div', 'vignette'); this.root.append(this.vignette);
 
     this._syncOptions();
@@ -204,7 +204,13 @@ export class UI {
     this.$.lootrow.hidden = !s.loot;
     if (s.loot) this.$.loot.textContent = `${s.loot.done} / ${s.loot.need}`;
     this.$.meter.hidden = !s.meter;
-    if (s.meter) { this.$.mlabel.textContent = s.meter.label; this.$.mbar.style.width = `${Math.min(100, s.meter.value * 100)}%`; }
+    if (s.meter) {
+      this.$.mlabel.textContent = s.meter.label; this.$.mbar.style.width = `${Math.min(100, s.meter.value * 100)}%`;
+      // необязательные поля полоски: mark — отметка порога (0..1), good — зелёная полоска (чем полнее, тем лучше)
+      this.$.mmark.hidden = s.meter.mark == null;
+      if (s.meter.mark != null) this.$.mmark.style.left = `${s.meter.mark * 100}%`;
+      this.$.meter.classList.toggle('good', !!s.meter.good);
+    }
     this.$.alarm.hidden = !s.alarm;
     if (s.alarm) { this.$.atext.textContent = s.alarm.text; this.$.acount.textContent = s.alarm.hideCount ? '' : s.alarm.left.toFixed(1); }
     this.vignette.classList.toggle('alarm', !!s.alarm);

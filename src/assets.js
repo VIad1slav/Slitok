@@ -3,7 +3,7 @@
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const MODEL_DIR = './assets/models/';
-const NAMES = ['hand', 'gold_bar', 'glass_box', 'table', 'pedestal', 'room', 'vase', 'crown', 'camera', 'set_bank', 'set_museum'];
+const NAMES = ['hand', 'gold_bar', 'glass_box', 'table', 'pedestal', 'room', 'vase', 'crown', 'camera', 'set_bank', 'set_museum', 'coins', 'weight', 'shutter'];
 
 export async function loadModels(onProgress) {
   const loader = new GLTFLoader();

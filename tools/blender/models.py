@@ -343,6 +343,14 @@ def wall_frame(wall, size):
     }[wall]
 
 
+def inner_frame(p):
+    """То же, что innerFrame() в src/box.js: панель внутри коробки вдоль оси X или Z, от дна до height."""
+    mid, length = (p["from"] + p["to"]) / 2, p["to"] - p["from"]
+    if p["axis"] == "x":
+        return dict(o=(mid, p["height"] / 2, p["at"]), u=(1, 0, 0), v=(0, 1, 0), U=length, V=p["height"])
+    return dict(o=(p["at"], p["height"] / 2, mid), u=(0, 0, 1), v=(0, 1, 0), U=length, V=p["height"])
+
+
 def build_glass_wall(name, frame, hole, thickness):
     U2, V2 = frame["U"] / 2, frame["V"] / 2
     bm = bmesh.new()
@@ -411,6 +419,8 @@ def build_glass_boxes(data):
         for wall in WALLS:
             hole = next((h for h in lvl["box"]["holes"] if h["wall"] == wall), None)
             objs.append(build_glass_wall(f"L{lvl['id']}_{wall}", wall_frame(wall, lvl["box"]["size"]), hole, data["glass"]["thickness"]))
+        for i, panel in enumerate(lvl["box"].get("inner", [])):   # внутренние перегородки (см. innerFrame в src/box.js)
+            objs.append(build_glass_wall(f"L{lvl['id']}_inner{i}", inner_frame(panel), panel.get("hole"), data["glass"]["thickness"]))
     print(f"[glass] {len(objs)} стенок для {len(data['levels'])} уровней")
     return objs
 
@@ -783,3 +793,42 @@ def build_camera():
         _cyl("lens", (0, -0.075, 0.0), 0.017, 0.006, "metal", axis="Y", verts=24),
     ])
     return [base, head]
+
+
+# ---------------------------------------------------------------------------
+# Банк: монеты, груз, заслонка
+# ---------------------------------------------------------------------------
+def build_coins():
+    """Стопка из восьми монет ⌀4 см, высота 4 см; монеты лежат чуть неровно. Центр — в начале координат."""
+    parts = []
+    n, h = 8, 0.04
+    for i in range(n):
+        dx, dy = 0.0012 * math.sin(i * 2.4), 0.0012 * math.cos(i * 1.7)
+        coin = _cyl("coin", (dx, dy, -h / 2 + (i + 0.5) * h / n), 0.0188, h / n - 0.0006, "brass", verts=32, bevel=0.0007)
+        parts.append(coin)
+    obj = _join("coins", parts)
+    print(f"[coins] {sum(len(p.vertices) - 2 for p in obj.data.polygons)} треугольников")
+    return obj
+
+
+def build_weight():
+    """Груз для весов: стальной брусок 7 × 7 × 6 см (высота) с фасками и ручкой-скобой, утопленной в габарит."""
+    parts = [
+        _box("block", (0, 0, -0.006), (0.07, 0.07, 0.048), "steel", bevel=0.006),
+        _box("handle_l", (-0.018, 0, 0.022), (0.008, 0.012, 0.012), "metal"),
+        _box("handle_r", (0.018, 0, 0.022), (0.008, 0.012, 0.012), "metal"),
+        _box("handle_top", (0, 0, 0.0265), (0.046, 0.012, 0.007), "metal", bevel=0.002),
+    ]
+    return _join("weight", parts)
+
+
+def build_shutter():
+    """Пластина заслонки — единичная (1 × 1 × 1 в осях игры: X — вдоль хода, Y — высота, Z — толщина);
+    игра растягивает её под размер отверстия. В Blender это X, Z и Y соответственно."""
+    parts = [_box("plate", (0, 0, 0), (1.0, 0.6, 1.0), "steel", bevel=0.02)]
+    for z in (-0.32, 0.32):
+        parts.append(_box("rib", (0, -0.4, z), (0.92, 0.2, 0.06), "metal"))
+    for x in (-0.4, 0.4):
+        for z in (-0.4, 0.4):
+            parts.append(_cyl("rivet", (x, -0.36, z), 0.035, 0.3, "metal", axis="Y", verts=12))
+    return _join("shutter", parts)

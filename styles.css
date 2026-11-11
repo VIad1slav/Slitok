@@ -109,3 +109,9 @@ kbd { font: 600 12px var(--ui); padding: 3px 8px; border: 1px solid rgba(255, 25
 .lock { display: inline-block; width: 9px; height: 8px; margin-right: 6px; border-radius: 1px; background: var(--muted); position: relative; top: 1px; }
 .lock::before { content: ""; position: absolute; left: 1.5px; top: -5px; width: 4px; height: 5px; border: 1.5px solid var(--muted); border-bottom: 0; border-radius: 3px 3px 0 0; }
 @media (max-width: 560px) { .heisthead { grid-template-columns: 1fr auto; } .heisthead .htag { display: none; } }
+
+/* --- полоска с отметкой порога (весы) --- */
+.mbar { position: relative; }
+.mmark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); }
+.meter.good .mbar { border-color: rgba(120, 230, 160, 0.6); }
+.meter.good .mbar i { background: linear-gradient(90deg, #2fae6a, #7dffb0); }

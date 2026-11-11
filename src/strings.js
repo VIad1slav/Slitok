@@ -24,4 +24,10 @@ export const T = {
   cameraMeter: 'ЗАМЕЧЕН',
   cameraFail: 'Камера заметила движение',
   alarmFail: 'Сработала сигнализация',
+  shutterWarn: 'Заслонка закрывается!',
+  shutterAlarm: 'Заслонка упёрлась в руку!',
+  shutterFail: 'Заслонка прижала руку — сработала сигнализация',
+  scaleMeter: 'ВЕС',
+  scaleAlarm: 'Весы заметили пропажу!',
+  scaleFail: 'Весы заметили, что груза нет',
 };

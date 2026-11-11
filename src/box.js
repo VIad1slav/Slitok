@@ -18,6 +18,19 @@ export function wallFrame(wall, [w, h, d]) {
   }
 }
 
+/**
+ * Система координат внутренней перегородки. Перегородка — стеклянная панель от дна коробки:
+ *   { axis: 'x' | 'z' — вдоль какой оси идёт, at — где стоит по другой оси, from, to — края вдоль axis,
+ *     height — высота, hole — необязательное окно в том же формате, что отверстия стенок (offset от центра панели) }.
+ * Все координаты — относительно центра дна коробки.
+ */
+export function innerFrame(p) {
+  const mid = (p.from + p.to) / 2, U = p.to - p.from;
+  return p.axis === 'x'
+    ? { o: [mid, p.height / 2, p.at], u: [1, 0, 0], v: [0, 1, 0], U, V: p.height }
+    : { o: [p.at, p.height / 2, mid], u: [0, 0, 1], v: [0, 1, 0], U, V: p.height };
+}
+
 /** Габариты отверстия в плоскости стенки: полуразмеры a (по u) и b (по v). */
 export function holeExtents(hole) {
   return hole.shape === 'circle' ? [hole.radius, hole.radius] : [hole.size[0] / 2, hole.size[1] / 2];
@@ -104,6 +117,12 @@ export class GlassBox {
       this._buildVisual(wall, frame, hole, glbRoot);
       this._buildColliders(wall, frame, hole, staticMaterial);
     }
+    // внутренние перегородки: то же стекло, те же коллайдеры; имена — inner0, inner1, …
+    (level.box.inner || []).forEach((p, i) => {
+      const frame = innerFrame(p);
+      this._buildVisual(`inner${i}`, frame, p.hole || null, glbRoot);
+      this._buildColliders(`inner${i}`, frame, p.hole || null, staticMaterial);
+    });
   }
 
   _buildVisual(wall, frame, hole, glbRoot) {

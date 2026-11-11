@@ -70,6 +70,11 @@ def main():
     C.render_preview("model_crown", (0.17, -0.25, 0.17), (0, 0, 0), lens=70, floor=-0.025, key=8)
     C.reset_scene()
     C.export_glb(os.path.join(C.MODELS, "camera.glb"), M.build_camera())
+
+    # --- банк: монеты, груз, заслонка
+    for name, build in (("coins", M.build_coins), ("weight", M.build_weight), ("shutter", M.build_shutter)):
+        C.reset_scene()
+        C.export_glb(os.path.join(C.MODELS, f"{name}.glb"), [build()])
     print("[models] готово")
 
 

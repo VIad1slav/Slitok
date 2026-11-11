@@ -328,6 +328,7 @@ export async function createMaterials() {
   M.sleeve = new THREE.MeshStandardMaterial({ color: 0x060607, metalness: 0, roughness: 0.92, envMapIntensity: 0.15 });
   M.lampGlow = new THREE.MeshBasicMaterial({ color: 0xfff1d0, toneMapped: false });
   M.stone = new THREE.MeshStandardMaterial({ color: 0x1b1e25, metalness: 0, roughness: 0.42, envMapIntensity: 0.5 });   // стол музея
+  M.steelTable = new THREE.MeshStandardMaterial({ color: 0x3a3e46, metalness: 0.9, roughness: 0.38, envMapIntensity: 0.6 });   // стол банка
   M.brass = new THREE.MeshStandardMaterial({ color: 0xc9a045, metalness: 1, roughness: 0.32, envMapIntensity: 0.9 });
   M.canvas = new THREE.MeshStandardMaterial({ color: 0x1a2230, metalness: 0, roughness: 0.75, envMapIntensity: 0.2 });
   // добыча музея
