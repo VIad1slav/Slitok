@@ -23,7 +23,10 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.
 
 // Эталон: время автопилота (с) по id уровня. Симуляция детерминирована, поэтому расхождение значит,
 // что изменилась физика, уровень или сценарий автопилота. Меняя что-то из этого намеренно — обнови число.
-const BASELINE = { 1: 6.48, 2: 4.88, 3: 56.83, 4: 7.18, 5: 9.38, 6: 8.43, 7: 6.5, 8: 5.57 };   // уровень 8: в MVP было 5.82, сценарий автопилота переписан на общие шаги
+const BASELINE = {
+  1: 6.48, 2: 4.88, 3: 49.06, 4: 7.18, 5: 9.38, 6: 8.43, 7: 6.5, 8: 5.57,   // MVP; уровни 3 и 8 — после перевода автопилота на общие шаги (было 56.83 и 5.82)
+  9: 7.13, 10: 5.44, 11: 52.72, 12: 6.78, 13: 8.17, 14: 5.46, 15: 7.96, 16: 12.27, 17: 14.38, 18: 11.07,
+};
 const TIME_TOLERANCE = 0.10;
 
 const server = createServer(async (req, res) => {
@@ -81,7 +84,7 @@ const sv = await page.evaluate(async () => {
 });
 check(sv.version === 2 && JSON.stringify(sv.best) === JSON.stringify(OLD_SAVE.best) && sv.skin === 'glove' && sv.handSkin === 'glove' && sv.volume === 0.4,
   `старое сохранение прочитано без потерь (версия ${sv.version}, рекордов ${Object.keys(sv.best).length}, рука «${sv.skin}», громкость ${sv.volume})`);
-check(sv.stars === 6 && sv.open.join() === 'true,false,false,false,false' && sv.next === 3,
+check(sv.stars === 6 && sv.open.join() === 'true,false,false,false,false' && sv.next === 9,
   `замки по звёздам: звёзд ${sv.stars}, открыто ${sv.open.map((o) => (o ? 'да' : 'нет')).join('/')} при порогах ${sv.thresholds.join('/')}, «Играть» ведёт на уровень ${sv.next}`);
 
 const shot = async (name) => {
@@ -103,12 +106,6 @@ if (SHOTS) {
   await shot('menu');
   await page.evaluate(() => window.__gg.ui.show('levels'));
   await shot('heists');
-  await freeze(1, 3.4); await shot('level1_grab');
-  await freeze(2, 2.6); await shot('level2_side');
-  await freeze(3, 7.0); await shot('level3_monkey');
-  await freeze(5, 5.2); await shot('level5_lasers');
-  await freeze(8, 3.0); await shot('level8_carousel');
-  await freeze(3, 7.0, true); await shot('level3_sideview');
 }
 
 // --- автопилот проходит все уровни кампании
@@ -122,6 +119,47 @@ for (const r of results) {
   const note = base == null ? 'эталона нет' : `эталон ${base} с, ${drift >= 0 ? '+' : ''}${(drift * 100).toFixed(1)} %`;
   check(r.result === 'won' && (drift == null || Math.abs(drift) <= TIME_TOLERANCE), `${r.heist} ${r.number} «${r.name}» (id ${r.level}): ${r.result}, ${r.time} с (${note}), касаний ${r.touches}, звёзд ${r.stars}`);
 }
+
+// --- по кадру с каждого уровня: середина прохождения автопилотом (и один кадр «вид сбоку»)
+if (SHOTS) {
+  for (const r of results) { await freeze(r.level, Math.max(1.5, r.time * 0.5)); await shot(`level_${String(r.level).padStart(2, '0')}`); }
+  await freeze(3, 7.0, true); await shot('sideview');
+}
+
+// --- музей: ваза бьётся, камера ловит движение
+const museum = await page.evaluate(() => {
+  const g = window.__gg, S = 1 / 120, out = {};
+  const run = (s, fn) => { for (let i = 0; i < s * 120 && g.state === 'playing'; i++) { if (fn) fn(); g._fixedStep(S); } };
+  // ваза падает с 25 см — должна разбиться
+  g.startLevelById(12);
+  const vase = g.items[0];
+  run(0.5);
+  out.calm = { cracks: vase.cracks, broken: vase.broken };          // просто стоит — цела
+  vase.body.position.y += 0.25; run(1.5);
+  out.drop = { broken: vase.broken, result: g.result };
+  // лёгкий стук (опускание с 4 см) — трещина, но не вдребезги
+  g.startLevelById(12);
+  const v2 = g.items[0];
+  run(0.5); v2.body.position.y += 0.04; run(1.0);
+  out.tap = { cracks: v2.cracks, broken: v2.broken, state: g.state };
+  // камера: двигаем руку, пока она смотрит
+  g.startLevelById(13);
+  const cam = g.traps.find((t) => t.def.type === 'camera'), h = g.hand;
+  for (let i = 0; i < 20 * 120 && g.state === 'playing' && cam.state !== 'watch'; i++) g._fixedStep(S);
+  out.still = { state: cam.state };
+  run(1.0);                                                          // рука неподвижна — ничего не происходит
+  out.still.meter = +cam.meter.toFixed(2); out.still.game = g.state;
+  for (let i = 0; i < 20 * 120 && g.state === 'playing' && cam.state !== 'away'; i++) g._fixedStep(S);
+  for (let i = 0; i < 20 * 120 && g.state === 'playing' && cam.state !== 'watch'; i++) g._fixedStep(S);
+  run(3.0, () => h.target.set(h.pos.x, h.pos.y + 0.05, h.pos.z));   // рука ползёт вверх
+  out.moved = { result: g.result, meter: +cam.meter.toFixed(2) };
+  g.toMenu();
+  return out;
+});
+check(!museum.calm.broken && museum.calm.cracks === 0 && museum.drop.broken && /Ваза/.test(museum.drop.result || ''), `ваза: стоит — цела, упала с 25 см — ${museum.drop.result}`);
+check(museum.tap.cracks === 1 && !museum.tap.broken && museum.tap.state === 'playing', `ваза: лёгкий удар даёт трещину, но не разбивает (трещин ${museum.tap.cracks})`);
+check(museum.still.state === 'watch' && museum.still.meter === 0 && museum.still.game === 'playing', `камера смотрит, рука неподвижна — тревоги нет (полоска ${museum.still.meter})`);
+check(/Камера/.test(museum.moved.result || ''), `камера смотрит, рука движется — ${museum.moved.result}`);
 
 // --- общая модель добычи
 const loot = await page.evaluate(async () => {
@@ -184,39 +222,40 @@ check(phys.broken.broken && /Стекло/.test(phys.broken.result || ''), `ст
 check(phys.monkey.held && phys.monkey.barZ < phys.monkey.wallZ, `ловушка для обезьян: слиток поперёк не вышел (z = ${phys.monkey.barZ}, стенка ${phys.monkey.wallZ.toFixed(2)})`);
 check(phys.drop.inside && phys.drop.y > 0.9, `брошенный слиток остался внутри коробки (y = ${phys.drop.y})`);
 
-// --- нагрузка на отрисовку. Абсолютные миллисекунды плавают между запусками до 40 %, поэтому
-// сравниваем уровни с уровнем 1 в этом же запуске и считаем точные числа: вызовы отрисовки и треугольники.
+// --- нагрузка на отрисовку. Время кадра на этой видеокарте скачет на десятки процентов само по себе
+// (режимы питания), поэтому каждый уровень сравнивается с уровнем 1 «вперемежку»: уровень, эталон, уровень,
+// эталон… — и берётся лучшее время каждого. Плюс точные числа без шума: вызовы отрисовки и треугольники.
 const perf = await page.evaluate(async () => {
   const g = window.__gg, H = await import('/src/heists.js'), gl = g.stage.renderer.getContext(), px = new Uint8Array(4), out = [];
-  const measure = () => {
-    const batches = [];
-    for (let b = 0; b < 7; b++) {
-      const a = performance.now();
-      for (let i = 0; i < 60; i++) g.stage.render();
-      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
-      batches.push((performance.now() - a) / 60);
-    }
-    return batches.sort((x, y) => x - y)[3];
+  const time = (n = 40) => { const a = performance.now(); for (let i = 0; i < n; i++) g.stage.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return (performance.now() - a) / n; };
+  const load = (id, seconds) => {
+    g.runAuto(id); g.timeScale = 0;
+    for (let k = 0; k < seconds * 120 && g.state === 'playing'; k++) g._fixedStep(1 / 120);
+    g.hand.updateVisual(0); for (const it of g.items) if (!it.banked) it.sync();
+    for (const tr of g.traps) tr.update(0);
+    g.stage.update(0.016, 0, g.hand.pos, 0);
   };
   g.stage.renderer.info.autoReset = false;
-  for (const e of [null, ...H.campaignOrder()]) {   // первый проход — прогрев на уровне 1
-    g.runAuto(e ? e.level.id : 1); g.timeScale = 0;
-    for (let k = 0; k < 2.5 * 120 && g.state === 'playing'; k++) g._fixedStep(1 / 120);
-    g.hand.updateVisual(0); for (const it of g.items) if (!it.banked) it.sync();
-    g.stage.renderer.info.reset(); g.stage.render();
-    const calls = g.stage.renderer.info.render.calls, tris = g.stage.renderer.info.render.triangles;
-    const ms = measure();
-    if (e) out.push({ id: e.level.id, name: e.level.name, calls, tris, ms });
+  load(1, 0.5); time(60);                               // прогрев
+  for (const e of H.campaignOrder()) {
+    let ms = Infinity, ref = Infinity, calls = 0, tris = 0;
+    for (let round = 0; round < 5; round++) {
+      load(e.level.id, round ? 0.3 : 2.5);
+      if (!round) { g.stage.renderer.info.reset(); g.stage.render(); calls = g.stage.renderer.info.render.calls; tris = g.stage.renderer.info.render.triangles; }
+      time(8); ms = Math.min(ms, time());
+      load(1, 0.3);
+      time(8); ref = Math.min(ref, time());
+    }
+    out.push({ id: e.level.id, name: e.level.name, calls, tris, ms, ref });
   }
   g.stage.renderer.info.autoReset = true; g.timeScale = 1; g.toMenu();
   return out;
 });
-const ref = perf.find((p) => p.id === 1) || perf[0];
-// Пределы: самый тяжёлый уровень MVP — 92 вызова, 81 тыс. треугольников, время кадра ×1.02 к уровню 1.
-// Время кадра — главный критерий (не хуже чем на 15 % плюс запас на шум замера); вызовы и треугольники — ориентир с запасом на новые ловушки.
+// Пределы: самый тяжёлый уровень MVP — время кадра ×1.02 к уровню 1, 92 вызова, 81 тыс. треугольников.
+// Время кадра — главный критерий: не хуже чем на 15 % (плюс 5 % на остаточный шум); вызовы и треугольники — ориентир.
 const PERF_LIMIT = { calls: 140, tris: 130000, ratio: 1.2 };
 for (const p of perf) {
-  const ratio = p.ms / ref.ms;
+  const ratio = p.ms / p.ref;
   check(p.calls <= PERF_LIMIT.calls && p.tris <= PERF_LIMIT.tris && ratio <= PERF_LIMIT.ratio, `отрисовка, уровень ${p.id} «${p.name}»: вызовов ${p.calls}, треугольников ${(p.tris / 1000).toFixed(0)} тыс., кадр ${p.ms.toFixed(2)} мс (×${ratio.toFixed(2)} к уровню 1)`);
 }
 

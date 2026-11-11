@@ -18,4 +18,10 @@ export const T = {
   itemBanked: (done, total) => `В сейфе ${done} из ${total}`,
   propLost: 'Реквизит упал со стола',
   slipped: 'Выскользнул!',
+  cracked: (name) => `${name}: трещина! Ещё один удар — и вдребезги`,
+  cameraWarn: 'Камера поворачивается — замри',
+  cameraWatch: 'Камера смотрит — не двигайся',
+  cameraMeter: 'ЗАМЕЧЕН',
+  cameraFail: 'Камера заметила движение',
+  alarmFail: 'Сработала сигнализация',
 };

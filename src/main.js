@@ -12,6 +12,7 @@ import { levelLoot, lootNeeded } from './loot-types.js';
 import { nextAfter, placeOf, levelById, totalStars } from './heists.js';
 import { cosmeticById, unlockedCosmetics } from './cosmetics.js';
 import { T } from './strings.js';
+import { spawnShards } from './shards.js';
 import { Hand } from './hand.js';
 import { Pedestal, createTraps } from './traps.js';
 import { AudioSys } from './audio.js';
@@ -89,6 +90,7 @@ class Game {
     this.traps?.forEach((t) => t.dispose());
     this.pedestal?.dispose(); this.items?.forEach((it) => it.dispose()); this.box?.dispose();
     this.traps = []; this.items = []; this.pedestal = this.box = null;
+    this.shards?.forEach((s) => s.dispose()); this.shards = [];
     this.audio.sirenStop();
   }
 
@@ -103,7 +105,7 @@ class Game {
     this.items = levelLoot(level).map((def, index) => new Loot({ scene, world, M, models: this.models, level, def, index, staticMaterial }));
     for (const it of this.items) it.body.addEventListener('collide', (e) => this._onLootCollide(e));
     this.lootNeed = lootNeeded(level); this.lootDone = 0;
-    this.traps = createTraps(level, { scene, world, M, level, items: this.items, staticMaterial });
+    this.traps = createTraps(level, { scene, world, M, level, items: this.items, staticMaterial, stage: this.stage, models: this.models });
     this._refreshStatics();
     this.hand.reset(level);
     this.stage.setLevel(level);
@@ -123,9 +125,12 @@ class Game {
   /** Запустить уровень по его описанию. */
   startLevelDef(level) {
     this.audio.init();
+    this.autopilot = null; this.result = null;   // автопилот прошлого уровня не должен рулить новым
     this._loadLevel(level);
     this.state = 'playing';
-    this.ui.hideScreens(); this.ui.showHud(true); this.ui.startLevel(this.level, placeOf(level.id));
+    const place = placeOf(level.id);
+    this.stage.setTheme(place?.heist.theme);
+    this.ui.hideScreens(); this.ui.showHud(true); this.ui.startLevel(this.level, place);
     this._requestLock();
   }
 
@@ -154,9 +159,10 @@ class Game {
   toast(text) { this.ui.toast(text); }
 
   /** Тревога: сирена, красный свет и обратный отсчёт до провала. */
-  alarm(seconds, text, hideCount = false) {
+  /** failReason — что написать на экране поражения, если отсчёт дойдёт до нуля. */
+  alarm(seconds, text, hideCount = false, failReason = T.alarmFail) {
     if (this.alarmState || this.state !== 'playing') return;
-    this.alarmState = { left: seconds, text, hideCount };
+    this.alarmState = { left: seconds, text, hideCount, failReason };
     this.stage.setAlarm(true);
     this.audio.sirenStart();
   }
@@ -204,6 +210,18 @@ class Game {
         this._refreshStatics();
         this.fail('Стекло разбито');
       }
+    }
+  }
+
+  /** Удар по хрупкой добыче: трещина или вдребезги. */
+  _fragileHit(item, speed) {
+    const r = item.hit(speed, this.time, this.M.cracks[1]);
+    if (r === 'crack') { this.audio.glassCrack(); this.toast(T.cracked(item.type.name)); }
+    else if (r === 'break') {
+      if (this.hand.item === item) this.hand.release('open');
+      this.audio.glassBreak();
+      this.shards.push(spawnShards(this.stage.scene, item.position(), item.type.bounds, item.material.color));
+      this.fail(item.type.failBreak);
     }
   }
 
@@ -278,12 +296,13 @@ class Game {
     this.hud.meter = null;
     this.hand.step(dt, this.items);
     this.world.step(dt);
-    for (const it of this.items) if (!it.banked) it.postStep();
+    for (const it of this.items) if (!it.banked) { it.postStep(); if (it.impact > 0) this._fragileHit(it, it.impact); }
 
     for (const ev of this.hand.events) {
       if (ev.type === 'contact') {
         if (ev.kind === 'glass') this._glassContact(ev.wall, ev.impact);
         else if (ev.byBar && ev.impact > 0.35) this.audio.thud(clamp(ev.impact / 2, 0, 1));
+        if (ev.byBar && this.hand.item) this._fragileHit(this.hand.item, ev.impact);   // хрупкий предмет в руке ударился о стекло или стол
       } else if (ev.type === 'grab') this.audio.grab();
       else if (ev.type === 'release' && ev.reason === 'slip') this.toast(T.slipped);
     }
@@ -295,7 +314,7 @@ class Game {
 
     if (this.alarmState) {
       this.alarmState.left -= dt;
-      if (this.alarmState.left <= 0) return this.fail('Сработала сигнализация');
+      if (this.alarmState.left <= 0) return this.fail(this.alarmState.failReason);
     }
     if (this.level.timeLimit && this.time > this.level.timeLimit) return this.fail('Время вышло');
 
@@ -350,6 +369,7 @@ class Game {
     }
     for (const tr of this.traps) tr.update(t);
     this.box.update(dt);
+    for (const s of this.shards) s.update(dt);
     this.stage.update(dt, t, this.hand.pos, this.safePulse);
     this.stage.render();
 

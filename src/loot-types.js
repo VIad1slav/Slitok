@@ -16,12 +16,25 @@
 //   model       — имя GLB в assets/models (без расширения); нет файла — рисуется запасная форма из примитивов
 //   material    — имя материала из src/textures.js
 //   topScale    — только для слитка: сужение верхней грани (запасная геометрия и Blender)
+//   fragile     — хрупкий предмет: { crackSpeed, breakSpeed, cracks } — удар быстрее crackSpeed (м/с) оставляет трещину,
+//                 удар быстрее breakSpeed или трещина номер cracks разбивают его; failBreak — причина провала
 
 /** Сетка сфер вдоль длины предмета: rows — смещения рядов по ширине, cols — число сфер в ряду. */
 function gridSpheres(length, rows, cols, r) {
   const out = [], step = (length - 2 * r) / (cols - 1);
   for (const z of rows) for (let i = 0; i < cols; i++) out.push([-length / 2 + r + i * step, 0, z, r]);
   return out;
+}
+
+/** Кольцо из n брусков радиуса r (корона): half — полуразмеры бруска [вдоль кольца, высота, толщина]. */
+function ringBoxes(n, r, half) {
+  return Array.from({ length: n }, (_, i) => {
+    const a = (i / n) * 360, t = (a * Math.PI) / 180;
+    return { type: 'box', half, pos: [r * Math.cos(t), 0, r * Math.sin(t)], rot: [0, 90 - a, 0] };
+  });
+}
+function ringSpheres(n, r, sphereR) {
+  return Array.from({ length: n }, (_, i) => { const t = (i / n) * Math.PI * 2; return [r * Math.cos(t), 0, r * Math.sin(t), sphereR]; });
 }
 
 export const LOOT = {
@@ -36,6 +49,32 @@ export const LOOT = {
     model: 'gold_bar',
     material: 'gold',
     topScale: 0.78,
+  },
+  // Ваза: стоит вертикально, бьётся. Тулово ⌀8 см и горлышко ⌀4,4 см, общая высота 14 см.
+  vase: {
+    name: 'Ваза',
+    failFall: 'Ваза упала со стола',
+    failBreak: 'Ваза разбита',
+    bounds: [0.08, 0.14, 0.08],
+    shapes: [{ type: 'cylinder', radius: 0.04, height: 0.1, pos: [0, -0.02, 0] }, { type: 'cylinder', radius: 0.022, height: 0.04, pos: [0, 0.05, 0] }],
+    held: [[0, -0.03, 0, 0.04], [0, 0.0, 0, 0.04], [0, 0.05, 0, 0.023]],
+    mass: 0.7,
+    friction: 0.7,
+    fragile: { crackSpeed: 0.7, breakSpeed: 1.3, cracks: 2 },
+    model: 'vase',
+    material: 'vase',
+  },
+  // Корона: широкое низкое кольцо ⌀15 см, высота 5 см. В узкую щель проходит только ребром.
+  crown: {
+    name: 'Корона',
+    failFall: 'Корона упала со стола',
+    bounds: [0.15, 0.05, 0.15],
+    shapes: ringBoxes(8, 0.067, [0.027, 0.025, 0.008]),
+    held: ringSpheres(8, 0.055, 0.02),
+    mass: 0.8,
+    friction: 0.6,
+    model: 'crown',
+    material: 'crown',
   },
 };
 

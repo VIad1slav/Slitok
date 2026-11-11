@@ -206,7 +206,8 @@ def mat_skin(nt):
     return dict(color=col, rough=rough, metal=0.0, normal=normal)
 
 
-def mat_glove(nt):
+def mat_glove(nt, light=False):
+    """light=True — светлый вариант цвета под подкраску в игре (цветные перчатки): тот же рисунок, в 13 раз светлее."""
     P = nt.coords("Object")
     px, py, pz = nt.sep(P)
     _, _, nz = nt.sep(nt.coords("Normal"))
@@ -233,8 +234,10 @@ def mat_glove(nt):
     col = nt.mix(guard, col, (0.055, 0.055, 0.06, 1))
     col = nt.mix(strap, col, (0.06, 0.06, 0.066, 1))
     col = nt.mix(nt.maxf(stitch, nt.mul(seam, 0.6)), col, (0.22, 0.22, 0.23, 1))
-    col = nt.mix(tag, col, (0.85, 0.36, 0.04, 1))
-    col = nt.mix(cuff, col, (0.05, 0.05, 0.055, 1))
+    if light:
+        col = nt.mix(1.0, col, (13.0, 13.0, 13.0, 1), "MULTIPLY")
+    col = nt.mix(tag, col, (0.8, 0.8, 0.8, 1) if light else (0.85, 0.36, 0.04, 1))
+    col = nt.mix(cuff, col, (0.6, 0.6, 0.6, 1) if light else (0.05, 0.05, 0.055, 1))
 
     rough = nt.add(0.82, nt.mul(cloth_n, 0.12))
     rough = nt.mixf(palm, rough, 0.62)
@@ -249,6 +252,66 @@ def mat_glove(nt):
     height = nt.add(height, nt.mul(nt.maxf(stitch, seam), 0.6))
     normal = nt.bump(height, strength=0.7, distance=0.0006)
     return dict(color=col, rough=rough, metal=0.0, normal=normal)
+
+
+def mat_vase(nt):
+    """Фарфор: белая глазурь, кобальтовые пояски и волна, тонкая сетка кракелюра."""
+    P = nt.coords("Object")
+    px, py, pz = nt.sep(P)
+    ang = nt.math("ARCTAN2", py, px)
+    h = nt.add(pz, M.VASE_HEIGHT / 2)                                   # высота от дна, м
+    band = lambda lo, hi: nt.mul(nt.smoothstep(h, lo, lo + 0.0015), nt.sub(1.0, nt.smoothstep(h, hi, hi + 0.0015)))  # noqa: E731
+    lines = nt.maxf(nt.maxf(band(0.028, 0.032), band(0.072, 0.076)), band(0.128, 0.134))
+    wave_h = nt.add(0.052, nt.mul(nt.math("SINE", nt.mul(ang, 8.0)), 0.012))
+    wave = nt.sub(1.0, nt.smoothstep(nt.math("ABSOLUTE", nt.sub(h, wave_h)), 0.0018, 0.0032))
+    dots = nt.mul(nt.sub(1.0, nt.smoothstep(nt.math("ABSOLUTE", nt.sub(h, 0.092)), 0.0, 0.004)), nt.smoothstep(nt.math("SINE", nt.mul(ang, 24.0)), 0.55, 0.8))
+    paint = nt.sat(nt.maxf(nt.maxf(lines, wave), dots))
+    crackle = nt.sub(1.0, nt.smoothstep(nt.voronoi(P, 260, "DISTANCE_TO_EDGE"), 0.0, 0.018))
+    tone = nt.noise(P, 30, 3, 0.5)
+    col = nt.mix(tone, (0.80, 0.80, 0.74, 1), (0.88, 0.88, 0.84, 1))
+    col = nt.mix(nt.mul(crackle, 0.22), col, (0.45, 0.42, 0.36, 1))
+    col = nt.mix(paint, col, (0.02, 0.06, 0.32, 1))
+    rough = nt.sat(nt.add(nt.add(0.08, nt.mul(tone, 0.05)), nt.mul(crackle, 0.12)))
+    height = nt.sub(nt.mul(paint, 0.3), crackle)
+    return dict(color=col, rough=rough, metal=0.0, normal=nt.bump(height, strength=0.25, distance=0.0003))
+
+
+def mat_crown(nt):
+    """Золото с чеканкой; камни на ободе — рубины и сапфиры через один; жемчужины на зубцах."""
+    c = M.CROWN
+    P = nt.coords("Object")
+    px, py, pz = nt.sep(P)
+    spikes, gems = M.crown_points()
+    ruby = sapphire = pearl = None
+    r_gem = c["radius"] + c["band"] / 2
+    for i, a in enumerate(gems):
+        d = nt.vmath("DISTANCE", P, (r_gem * math.cos(a), r_gem * math.sin(a), (c["mid"] + c["low"]) / 2))
+        m = nt.sub(1.0, nt.smoothstep(d, 0.0068, 0.0082))
+        if i % 2 == 0:
+            ruby = m if ruby is None else nt.maxf(ruby, m)
+        else:
+            sapphire = m if sapphire is None else nt.maxf(sapphire, m)
+    for a in spikes:
+        d = nt.vmath("DISTANCE", P, (c["radius"] * math.cos(a), c["radius"] * math.sin(a), c["high"] - 0.004))
+        m = nt.sub(1.0, nt.smoothstep(d, 0.0055, 0.0068))
+        pearl = m if pearl is None else nt.maxf(pearl, m)
+    stone = nt.maxf(ruby, sapphire)
+    nonmetal = nt.maxf(stone, pearl)
+    big = nt.noise(P, 40, 3, 0.55)
+    chase = nt.voronoi(P, 520, "F1")                                           # мелкая чеканка
+    engr = nt.mul(nt.sub(1.0, nt.smoothstep(nt.math("ABSOLUTE", nt.add(pz, 0.0155)), 0.0, 0.0012)), nt.smoothstep(pz, c["low"], c["low"] + 0.002))
+    col = nt.mix(big, (1.0, 0.68, 0.24, 1), (1.0, 0.78, 0.34, 1))
+    col = nt.mix(nt.mul(engr, 0.5), col, (0.5, 0.3, 0.08, 1))
+    col = nt.mix(ruby, col, (0.55, 0.012, 0.03, 1))
+    col = nt.mix(sapphire, col, (0.02, 0.07, 0.5, 1))
+    col = nt.mix(pearl, col, (0.86, 0.84, 0.78, 1))
+    rough = nt.add(0.2, nt.mul(big, 0.1))
+    rough = nt.mixf(stone, rough, 0.06)
+    rough = nt.mixf(pearl, rough, 0.28)
+    metal = nt.sub(1.0, nonmetal)
+    height = nt.sub(nt.mul(chase, 0.3), nt.mul(engr, 1.0))
+    height = nt.mul(height, nt.sub(1.0, nonmetal))
+    return dict(color=col, rough=rough, metal=metal, normal=nt.bump(height, strength=0.4, distance=0.0003))
 
 
 # ---------------------------------------------------------------------------
@@ -437,7 +500,7 @@ def bake_all(only=None):
         C.bake_pbr(bar, nt, mat_gold(nt, stamp_path, data["bar"]), "gold", HERO)
         bar.hide_render = True
 
-    if want("skin") or want("glove"):
+    if want("skin") or want("glove") or want("glove_light"):
         hand, rig = M.build_hand()
         hand.modifiers.clear()            # запекаем в позе покоя
         hand.parent = None
@@ -448,7 +511,21 @@ def bake_all(only=None):
         if want("glove"):
             nt = assign(hand, "glove")
             C.bake_pbr(hand, nt, mat_glove(nt), "glove", HERO)
+        if want("glove_light"):   # только цвет: нормали и ORM общие с чёрной перчаткой
+            nt = assign(hand, "glove_light")
+            C.save_png(os.path.join(C.TEXTURES, "glove_light_albedo.png"), C.bake(hand, nt, mat_glove(nt, light=True), "color", HERO)[:, :, :3])
         hand.hide_render = True
+
+    if want("vase"):
+        vase = M.build_vase()
+        nt = assign(vase, "vase")
+        C.bake_pbr(vase, nt, mat_vase(nt), "vase", ENV)
+        vase.hide_render = True
+    if want("crown"):
+        crown = M.build_crown()
+        nt = assign(crown, "crown")
+        C.bake_pbr(crown, nt, mat_crown(nt), "crown", ENV)
+        crown.hide_render = True
 
     plane = unit_plane("swatch")
     for key, fn in (("wood_table", mat_wood), ("wall_concrete", mat_concrete), ("floor_tiles", mat_tiles), ("velvet_red", mat_velvet)):
@@ -507,6 +584,15 @@ def previews():
         bar.data.materials.append(textured("gold_tex", "gold"))
         C.render_preview("tex_gold_bar", (0.13, -0.21, 0.2), (0.0, 0, 0), lens=75, floor=-data["bar"]["size"][1] / 2, key=8)
         C.render_preview("tex_gold_bar_top", (0.0, -0.06, 0.26), (0.0, 0, 0), lens=70, floor=-data["bar"]["size"][1] / 2, key=6)
+
+    for name, build, cam, floor in (("vase", M.build_vase, (0.15, -0.25, 0.1), -M.VASE_HEIGHT / 2), ("crown", M.build_crown, (0.16, -0.24, 0.16), -0.025)):
+        if not have(f"{name}_albedo.png"):
+            continue
+        C.reset_scene()
+        obj = build()
+        obj.data.materials.clear()
+        obj.data.materials.append(textured(f"{name}_tex", name))
+        C.render_preview(f"tex_{name}", cam, (0, 0, 0), lens=75, floor=floor, key=7)
 
     for tex in ("skin", "glove"):
         if not have(f"{tex}_albedo.png"):

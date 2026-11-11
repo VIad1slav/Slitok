@@ -53,7 +53,23 @@ def main():
     C.reset_scene()
     C.export_glb(os.path.join(C.MODELS, "pedestal.glb"), [M.build_pedestal()])
     C.reset_scene()
-    C.export_glb(os.path.join(C.MODELS, "room.glb"), [M.build_room(data)])
+    room, bank_set = M.build_room(data)
+    C.export_glb(os.path.join(C.MODELS, "room.glb"), [room])
+    C.export_glb(os.path.join(C.MODELS, "set_bank.glb"), [bank_set])
+    C.reset_scene()
+    C.export_glb(os.path.join(C.MODELS, "set_museum.glb"), [M.build_set_museum(data)])
+
+    # --- добыча музея и камера
+    C.reset_scene()
+    vase = M.build_vase()
+    C.export_glb(os.path.join(C.MODELS, "vase.glb"), [vase])
+    C.render_preview("model_vase", (0.16, -0.26, 0.12), (0, 0, 0), lens=70, floor=-M.VASE_HEIGHT / 2, key=8)
+    C.reset_scene()
+    crown = M.build_crown()
+    C.export_glb(os.path.join(C.MODELS, "crown.glb"), [crown])
+    C.render_preview("model_crown", (0.17, -0.25, 0.17), (0, 0, 0), lens=70, floor=-0.025, key=8)
+    C.reset_scene()
+    C.export_glb(os.path.join(C.MODELS, "camera.glb"), M.build_camera())
     print("[models] готово")
 
 

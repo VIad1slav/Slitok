@@ -16,6 +16,7 @@ const DT = PHYS.step, rad = THREE.MathUtils.degToRad;
 const cur = new THREE.Vector3(), dst = new THREE.Vector3();
 const PALM_REST = 0.022;   // центр ладони над верхом предмета, когда ладонь лежит на нём
 const FINGER_REACH = 0.116; // от центра ладони до кончиков прямых пальцев
+const FOREARM_R = 0.042;    // самое толстое место предплечья
 
 // ---------------------------------------------------------------------------
 // 1. Примитивы
@@ -27,6 +28,8 @@ function* until(fn, timeout = 20) { for (let t = 0; t < timeout && !fn(); t += D
 function* moveTo(g, [x, y, z], speed = 0.6, tol = 0.015, timeout = 5) {
   const h = g.hand; cur.copy(h.target); dst.set(x, y, z);
   for (let t = 0; t < timeout; t += DT) {
+    // ловушка просит замереть (камера смотрит): цель кисти — там, где кисть сейчас; время шага не тратится
+    if (g.traps.some((tr) => tr.autoHold && tr.autoHold())) { h.target.copy(h.pos); t -= DT; yield; continue; }
     const d = cur.distanceTo(dst), step = speed * DT;
     if (d <= step) cur.copy(dst); else cur.lerp(dst, step / d);
     h.target.copy(cur);
@@ -88,19 +91,23 @@ export function* deliver(g, item, carryY, speed = 0.7) {
 /** Отверстие сверху: рука висит «клешнёй», предмет берётся кончиками пальцев и сразу несётся в «сейф». */
 export function* claw(g, item, { liftSpeed = 0.6 } = {}) {
   const b = posOf(item), top = topOf(item), [sx, sz] = g.level.safe.pos;
-  // кончики пальцев относительно центра ладони при текущем наклоне кисти
+  // кончики пальцев относительно центра ладони при текущем наклоне и повороте кисти:
+  // ниже на dy и впереди на dz по направлению (fx, fz), куда смотрит кисть
   const p = -g.hand.ang.pitch, dy = FINGER_REACH * Math.sin(p), dz = FINGER_REACH * Math.cos(p);
-  const z = b.z + dz, high = g.level.box.size[1] + WORLD.tableY + dy + 0.1;
-  yield* moveTo(g, [b.x, high, z], 0.6);
+  const fx = -Math.sin(g.hand.ang.yaw), fz = -Math.cos(g.hand.ang.yaw);
+  const x = b.x - fx * dz, z = b.z - fz * dz;
+  // высота переноса: предмет, висящий под пальцами, должен пройти над верхом коробки
+  const high = g.level.box.size[1] + WORLD.tableY + dy + Math.max(0.1, heightOf(item) + 0.045);
+  yield* moveTo(g, [x, high, z], 0.6);
   yield* waitTraps(g, 'enter', item, { axis: 'z' });
-  yield* moveTo(g, [b.x, top + dy - 0.02, z], 0.35, 0.01, 2.5); // упрётся пальцами в предмет
+  yield* moveTo(g, [x, top + dy - 0.02, z], 0.35, 0.01, 2.5); // упрётся пальцами в предмет
   yield* wait(0.25);
   yield* waitTraps(g, 'grab', item, { axis: 'z' });
   yield* grip(g, true);
-  yield* moveTo(g, [b.x, top + dy + 0.08, z], liftSpeed, 0.02);
-  yield* moveTo(g, [b.x, high, z], 0.6, 0.02);
-  yield* moveTo(g, [sx, high, sz + dz], 0.7, 0.02);
-  yield* moveTo(g, [sx, WORLD.tableY + heightOf(item) + 0.028 + dy, sz + dz], 0.5, 0.012, 3);
+  yield* moveTo(g, [x, top + dy + 0.08, z], liftSpeed, 0.02);
+  yield* moveTo(g, [x, high, z], 0.6, 0.02);
+  yield* moveTo(g, [sx - fx * dz, high, sz - fz * dz], 0.7, 0.02);
+  yield* moveTo(g, [sx - fx * dz, WORLD.tableY + heightOf(item) + 0.028 + dy, sz - fz * dz], 0.5, 0.012, 3);
   yield* grip(g, false, 1.2);
 }
 
@@ -109,19 +116,43 @@ export function* claw(g, item, { liftSpeed = 0.6 } = {}) {
  * Возвращает высоту, на которой предмет вынесен наружу (для deliver).
  *   speed — скорость руки; approachSpeed — скорость подхода к отверстию (по умолчанию = speed);
  *   outside — как далеко от предмета точка «снаружи»; lift — на сколько приподнять перед выносом;
- *   hover — если задано, ладонь не опускается на предмет, а висит на этой высоте над ним (движущийся предмет).
+ *   hover — если задано, ладонь не опускается на предмет, а висит на этой высоте над ним (движущийся предмет);
+ *   liftSpeed — скорость первого подъёма (нажимная плита требует плавности);
+ *   rollOut — перед выносом повернуть кисть ребром (предмет, который в щель проходит только боком).
  */
-export function* reach(g, item, entry, { speed = 0.6, approachSpeed = speed, outside = 0.34, lift = 0.03, hover = null, gripSettle = 0.4 } = {}) {
+export function* reach(g, item, entry, { speed = 0.6, approachSpeed = speed, outside = 0.34, lift = 0.03, hover = null, gripSettle = 0.4, liftSpeed = Math.min(speed, 0.2), rollOut = false } = {}) {
   const b = posOf(item), yGrab = topOf(item) + PALM_REST;
   const yIn = yGrab + (hover ?? 0.012);
-  yield* moveTo(g, along(b, entry, outside + 0.25, yIn), approachSpeed);
+  // Рука входит и выходит по оси отверстия. Если предмет лежит в стороне от неё (съехал, пока его
+  // разворачивали), рука сначала заходит по центру отверстия и только внутри сдвигается к предмету.
+  const lat = entry.axis === 'z' ? 'x' : 'z', hole = g.level.box.holes[0];
+  const axisPoint = b.clone(); axisPoint[lat] = g.level.box.pos[lat === 'x' ? 0 : 1] + hole.offset[0];
+  // предплечье остаётся в отверстии, поэтому вбок кисть может уйти не дальше, чем пускает его ширина
+  const slack = Math.max(0, (hole.shape === 'circle' ? hole.radius : hole.size[0] / 2) - FOREARM_R - 0.006);
+  b[lat] = Math.min(axisPoint[lat] + slack, Math.max(axisPoint[lat] - slack, b[lat]));
+  yield* moveTo(g, along(axisPoint, entry, outside + 0.25, yIn), approachSpeed);
   yield* waitTraps(g, 'enter', item, entry);
+  yield* moveTo(g, [axisPoint.x, yIn, axisPoint.z], speed, 0.012);
   yield* moveTo(g, [b.x, yIn, b.z], speed, 0.012);
   if (hover == null) yield* moveTo(g, [b.x, yGrab - 0.01, b.z], 0.2, 0.006, 0.6);
   yield* waitTraps(g, 'grab', item, entry);
   yield* grip(g, true, gripSettle);
-  yield* moveTo(g, [b.x, yGrab + lift, b.z], Math.min(speed, 0.2), 0.008);
-  yield* moveTo(g, along(b, entry, outside + 0.25, yGrab + lift), speed, 0.02);
+  yield* moveTo(g, [b.x, yGrab + lift, b.z], liftSpeed, 0.008);
+  yield* moveTo(g, [axisPoint.x, yGrab + lift, axisPoint.z], Math.min(speed, 0.3), 0.01);
+  const exit = along(axisPoint, entry, outside + 0.25, yGrab + lift);
+  if (rollOut) {
+    // кисть ребром: предмет оказывается сбоку от ладони. Сдвигаем руку вбок так, чтобы середина
+    // пары «ладонь + предмет» шла по центру отверстия.
+    yield* turn(g, { roll: 90 });
+    yield* wait(0.3);
+    const holeLat = axisPoint[lat];
+    const hl = g.hand.wrist[lat], il = item.position()[lat], t = heightOf(item) / 2;
+    const shift = holeLat - (Math.min(hl - 0.03, il - t) + Math.max(hl + 0.03, il + t)) / 2;
+    const p = g.hand.pos.clone(); p[lat] += shift;
+    yield* moveTo(g, [p.x, p.y, p.z], 0.15, 0.006, 2);
+    exit[lat === 'x' ? 0 : 2] = p[lat];
+  }
+  yield* moveTo(g, exit, speed, 0.02);
   return yGrab + lift;
 }
 
@@ -175,10 +206,15 @@ const targets = (g) => g.items.filter((it) => it.role === 'target' && !it.banked
 /** Сценарий по умолчанию: каждый предмет добычи — взять через отверстие и донести в «сейф». */
 export function* standard(g, o = {}) {
   const entry = entryOf(g.level);
+  if (o.yaw != null) yield* turn(g, { yaw: o.yaw });        // щель требует повернуть кисть заранее
   for (const item of targets(g)) {
     if (g.state !== 'playing') return;
     if (entry.mode === 'claw') yield* claw(g, item, o);
-    else { const y = yield* reach(g, item, entry, o); yield* deliver(g, item, y, o.deliverSpeed); }
+    else {
+      const y = yield* reach(g, item, entry, o);
+      if (o.rollOut) yield* turn(g, { roll: 0 });
+      yield* deliver(g, item, y, o.deliverSpeed);
+    }
   }
 }
 
@@ -199,6 +235,23 @@ const AUTO = {
       yield* deliver(g, item, y, 0.8);
     },
   },
+  9: { yaw: 90 },                                       // узкая щель: рука ложится вдоль щели
+  10: { lift: 0.05, liftSpeed: 0.1 },                   // плита в глубине: поднять плавно и повыше, потом выносить
+  // Экзамен ломбарда: горячий слиток поперёк — развернуть перехватами, вынести, дать остыть, донести.
+  11: {
+    script: function* (g) {
+      const item = g.items[0];
+      yield* ratchet(g, item);
+      yield* wait(1.2);
+      yield* reach(g, item, entryOf(g.level), { speed: 0.8, outside: 0.3 });
+      yield* putDown(g, item);
+      const y = yield* pickUp(g, item);
+      yield* deliver(g, item, y, 0.8);
+    },
+  },
+  15: { rollOut: true, speed: 0.4 },                    // корона ребром
+  17: { speed: 0.75 },                                  // камера + мигающий лазер
+  18: { rollOut: true, speed: 0.4 },                    // зал короны
   // Карусель: висеть над платформой и сжать пальцы, когда слиток смотрит торцом на отверстие.
   8: { speed: 0.5, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.035, gripSettle: 0.35 },
 };

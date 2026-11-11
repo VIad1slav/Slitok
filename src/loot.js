@@ -76,6 +76,7 @@ export class Loot {
     this.role = def.role;
     this.maxSpeed = type.maxSpeed ?? PHYS.barMaxSpeed;
     this.held = false; this.banked = false; this.glowOwner = null; this.zoneTime = 0;
+    this.cracks = 0; this.broken = false; this.impact = 0; this._pv = new CANNON.Vec3(); this._hitTime = -9;
 
     // --- физическое тело
     const halfY = type.bounds[1] / 2;
@@ -160,9 +161,14 @@ export class Loot {
     this.body.wakeUp();
   }
 
-  /** Вызывать после каждого шага физики: ограничение скорости. */
+  /** Вызывать после каждого шага физики: ограничение скорости и, для хрупких, замер удара. */
   postStep() {
     const v = this.body.velocity, s = v.length();
+    if (this.type.fragile) {
+      // удар = скачок скорости за один шаг (минус то, что добавила сила тяжести); в руке удары считает решатель руки
+      this.impact = this.held ? 0 : Math.max(0, Math.hypot(v.x - this._pv.x, v.y - this._pv.y, v.z - this._pv.z) - Math.abs(PHYS.gravity) * PHYS.step * 1.5);
+      this._pv.copy(v);
+    }
     if (s > this.maxSpeed) v.scale(this.maxSpeed / s, v);
     const w = this.body.angularVelocity, ws = w.length();
     if (ws > 25) w.scale(25 / ws, w);
@@ -177,6 +183,24 @@ export class Loot {
   setGlow(k, color = 0xff5a10) {
     this.material.emissive.set(color);
     this.material.emissiveIntensity = k;
+  }
+
+  /**
+   * Удар по хрупкому предмету со скоростью speed (м/с) в момент time. Возвращает 'crack', 'break' или null.
+   * crackMaterial — материал трещин (рисуется вторым слоем поверх модели).
+   */
+  hit(speed, time, crackMaterial) {
+    const f = this.type.fragile;
+    if (!f || this.broken || speed < f.crackSpeed || time - this._hitTime < 0.3) return null;
+    this._hitTime = time;
+    this.cracks++;
+    if (speed >= f.breakSpeed || this.cracks >= f.cracks) { this.broken = true; this.banked = true; this._remove(); return 'break'; }
+    if (!this.crackLayer && crackMaterial) {
+      this.crackLayer = [];
+      this.mesh.traverse((o) => { if (o.isMesh) this.crackLayer.push(o); });
+      for (const o of this.crackLayer) { const m = new THREE.Mesh(o.geometry, crackMaterial); m.renderOrder = 5; o.add(m); }
+    }
+    return 'crack';
   }
 
   /** Предмет донесён в сейф: убрать из мира (счётчик ведёт игра). */

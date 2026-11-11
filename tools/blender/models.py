@@ -500,7 +500,8 @@ def build_pedestal():
 
 def build_room(data):
     rw, rh, rd = data["world"]["room"]
-    parts = []
+    parts = []   # коробка комнаты и лампа — общие для всех ограблений
+    bank = []    # дверь хранилища и ячейки — обстановка банка (set_bank.glb)
     t = 0.2
     parts.append(_box("floor", (0, 0, -t / 2), (rw, rd, t), "tiles"))
     parts.append(_box("ceiling", (0, 0, rh + t / 2), (rw, rd, t), "concrete"))
@@ -523,25 +524,25 @@ def build_room(data):
 
     # дверь хранилища на дальней стене (Blender +Y)
     yb, cz = rd / 2, 1.32
-    parts.append(_cyl("door_frame", (0, yb - 0.05, cz), 1.08, 0.1, "metal", axis="Y", verts=64, bevel=0.012))
-    parts.append(_cyl("door", (0, yb - 0.15, cz), 0.94, 0.16, "steel", axis="Y", verts=64, bevel=0.015))
-    parts.append(_cyl("door_inner", (0, yb - 0.25, cz), 0.62, 0.05, "metal", axis="Y", verts=64, bevel=0.008))
-    parts.append(_cyl("hub", (0, yb - 0.31, cz), 0.085, 0.09, "steel", axis="Y", verts=32, bevel=0.006))
+    bank.append(_cyl("door_frame", (0, yb - 0.05, cz), 1.08, 0.1, "metal", axis="Y", verts=64, bevel=0.012))
+    bank.append(_cyl("door", (0, yb - 0.15, cz), 0.94, 0.16, "steel", axis="Y", verts=64, bevel=0.015))
+    bank.append(_cyl("door_inner", (0, yb - 0.25, cz), 0.62, 0.05, "metal", axis="Y", verts=64, bevel=0.008))
+    bank.append(_cyl("hub", (0, yb - 0.31, cz), 0.085, 0.09, "steel", axis="Y", verts=32, bevel=0.006))
     bpy.ops.mesh.primitive_torus_add(major_radius=0.3, minor_radius=0.022, major_segments=64, minor_segments=12, location=(0, yb - 0.34, cz), rotation=(math.radians(90), 0, 0))
     wheel = bpy.context.active_object
     C.shade_smooth(wheel)
     wheel.data.materials.append(C.get_material("steel"))
-    parts.append(wheel)
+    bank.append(wheel)
     for i in range(5):
         a = 2 * math.pi * i / 5
         spoke = _box("spoke", (math.cos(a) * 0.15, yb - 0.34, cz + math.sin(a) * 0.15), (0.3, 0.026, 0.026), "steel", bevel=0.004)
         spoke.rotation_euler = (0, -a, 0)
-        parts.append(spoke)
+        bank.append(spoke)
     for i in range(12):
         a = 2 * math.pi * i / 12
-        parts.append(_cyl("bolt", (math.cos(a) * 0.8, yb - 0.24, cz + math.sin(a) * 0.8), 0.04, 0.04, "metal", axis="Y", verts=16, bevel=0.004))
+        bank.append(_cyl("bolt", (math.cos(a) * 0.8, yb - 0.24, cz + math.sin(a) * 0.8), 0.04, 0.04, "metal", axis="Y", verts=16, bevel=0.004))
     for z in (cz - 0.5, cz + 0.5):
-        parts.append(_box("hinge", (-1.06, yb - 0.16, z), (0.16, 0.2, 0.26), "metal", bevel=0.01))
+        bank.append(_box("hinge", (-1.06, yb - 0.16, z), (0.16, 0.2, 0.26), "metal", bevel=0.01))
 
     # ячейки хранилища на боковых стенах
     for sx in (-1, 1):
@@ -549,9 +550,9 @@ def build_room(data):
             for row in range(5):
                 y = -1.02 + col * 0.34
                 z = 0.42 + row * 0.27
-                parts.append(_box("cell", (sx * (rw / 2 - 0.025), y, z), (0.05, 0.31, 0.24), "metal", bevel=0.006))
-                parts.append(_box("cell_handle", (sx * (rw / 2 - 0.058), y, z - 0.05), (0.014, 0.07, 0.018), "steel"))
-                parts.append(_cyl("cell_lock", (sx * (rw / 2 - 0.053), y + 0.09, z + 0.06), 0.012, 0.008, "steel", axis="X", verts=12))
+                bank.append(_box("cell", (sx * (rw / 2 - 0.025), y, z), (0.05, 0.31, 0.24), "metal", bevel=0.006))
+                bank.append(_box("cell_handle", (sx * (rw / 2 - 0.058), y, z - 0.05), (0.014, 0.07, 0.018), "steel"))
+                bank.append(_cyl("cell_lock", (sx * (rw / 2 - 0.053), y + 0.09, z + 0.06), 0.012, 0.008, "steel", axis="X", verts=12))
 
     # лампа-прожектор над столом
     spot = Vector(C.g2b(data["world"]["spot"]))
@@ -580,5 +581,205 @@ def build_room(data):
     parts.append(_cyl("lamp_mount", (top.x, top.y, rh - 0.02), 0.08, 0.04, "metal", verts=24))
 
     room = _join("room", parts, uv_scale=1.0)
-    print(f"[room] {sum(len(p.vertices) - 2 for p in room.data.polygons)} треугольников")
-    return room
+    bank_set = _join("set_bank", bank, uv_scale=1.0)
+    for o in (room, bank_set):
+        print(f"[{o.name}] {sum(len(p.vertices) - 2 for p in o.data.polygons)} треугольников")
+    return room, bank_set
+
+
+def build_set_museum(data):
+    """Обстановка музея: картины в рамах, колонны, столбики с канатом, постаменты со скульптурой."""
+    rw, rh, rd = data["world"]["room"]
+    yb = rd / 2
+    parts = []
+    # картины на дальней стене, над каждой — светильник
+    for x, w, h in ((-1.55, 0.85, 1.1), (0.0, 1.5, 1.0), (1.55, 0.85, 1.1)):
+        z = 1.75
+        parts.append(_box("frame", (x, yb - 0.035, z), (w + 0.14, 0.07, h + 0.14), "brass", bevel=0.012))
+        parts.append(_box("canvas", (x, yb - 0.075, z), (w, 0.012, h), "canvas"))
+        parts.append(_box("picture_light", (x, yb - 0.16, z + h / 2 + 0.16), (w * 0.6, 0.05, 0.03), "metal", bevel=0.006))
+        parts.append(_box("picture_glow", (x, yb - 0.16, z + h / 2 + 0.142), (w * 0.55, 0.035, 0.006), "lamp_glow"))
+    # колонны вдоль боковых стен
+    for sx in (-1, 1):
+        for y in (-0.2, 1.9):
+            x = sx * (rw / 2 - 0.42)
+            parts.append(_cyl("column", (x, y, rh / 2), 0.15, rh - 0.5, "concrete", verts=24))
+            parts.append(_box("column_base", (x, y, 0.12), (0.42, 0.42, 0.24), "concrete", bevel=0.02))
+            parts.append(_box("column_cap", (x, y, rh - 0.12), (0.46, 0.46, 0.24), "concrete", bevel=0.02))
+    # столбики с бархатным канатом перед картинами
+    posts = [(-1.9, yb - 0.95), (-0.65, yb - 0.95), (0.65, yb - 0.95), (1.9, yb - 0.95)]
+    for x, y in posts:
+        parts.append(_cyl("post_base", (x, y, 0.015), 0.13, 0.03, "brass", verts=32, bevel=0.006))
+        parts.append(_cyl("post", (x, y, 0.47), 0.022, 0.9, "brass", verts=16))
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=20, ring_count=12, radius=0.045, location=(x, y, 0.95))
+        ball = bpy.context.active_object
+        C.shade_smooth(ball)
+        ball.data.materials.append(C.get_material("brass"))
+        parts.append(ball)
+    for (x0, y0), (x1, _) in zip(posts, posts[1:]):
+        mid = (x0 + x1) / 2
+        for xa, xb in ((x0, mid), (mid, x1)):   # канат провисает к середине
+            za, zb = (0.86, 0.72) if xa == x0 else (0.72, 0.86)
+            length = math.hypot(xb - xa, zb - za)
+            rope = _cyl("rope", ((xa + xb) / 2, y0, (za + zb) / 2), 0.014, length, "velvet", axis="X", verts=10)
+            rope.rotation_euler = (0, -math.atan2(zb - za, xb - xa), 0)
+            parts.append(rope)
+    # постаменты со скульптурами
+    for sx in (-1, 1):
+        x, y = sx * 1.95, 1.2      # в глубине зала, по бокам от картин: у стола они загораживали бы кадр
+        parts.append(_box("plinth", (x, y, 0.45), (0.36, 0.36, 0.9), "concrete", bevel=0.015))
+        if sx < 0:
+            bpy.ops.mesh.primitive_torus_add(major_radius=0.12, minor_radius=0.032, major_segments=40, minor_segments=14, location=(x, y, 1.08), rotation=(math.radians(90), 0, math.radians(25)))
+        else:
+            bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2, radius=0.14, location=(x, y, 1.05))
+        sculpt = bpy.context.active_object
+        if sx < 0:
+            C.shade_smooth(sculpt)
+        sculpt.data.materials.append(C.get_material("brass"))
+        parts.append(sculpt)
+    obj = _join("set_museum", parts, uv_scale=1.0)
+    print(f"[set_museum] {sum(len(p.vertices) - 2 for p in obj.data.polygons)} треугольников")
+    return obj
+
+
+# ---------------------------------------------------------------------------
+# Добыча музея и камера
+# ---------------------------------------------------------------------------
+VASE_PROFILE = (   # (радиус, высота от дна), м — снаружи снизу вверх, затем внутрь горлышка
+    (0.0, 0.0), (0.026, 0.0), (0.031, 0.004), (0.037, 0.02), (0.04, 0.045), (0.039, 0.065), (0.034, 0.085), (0.025, 0.1),
+    (0.02, 0.112), (0.0205, 0.126), (0.024, 0.137), (0.0235, 0.14), (0.018, 0.139), (0.016, 0.125), (0.0, 0.118),
+)
+VASE_HEIGHT = 0.14
+
+
+def build_vase():
+    """Ваза — тело вращения. Высота 14 см, начало координат — середина высоты. UV: вокруг оси и по высоте."""
+    seg = 48
+    bm = bmesh.new()
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    rings = []
+    for r, z in VASE_PROFILE:
+        if r == 0.0:
+            rings.append([bm.verts.new((0, 0, z - VASE_HEIGHT / 2))])
+        else:
+            rings.append([bm.verts.new((r * math.cos(2 * math.pi * i / seg), r * math.sin(2 * math.pi * i / seg), z - VASE_HEIGHT / 2)) for i in range(seg)])
+    # длина профиля → координата V
+    dist = [0.0]
+    for (r0, z0), (r1, z1) in zip(VASE_PROFILE, VASE_PROFILE[1:]):
+        dist.append(dist[-1] + math.hypot(r1 - r0, z1 - z0))
+    total = dist[-1]
+    for k, (a, b) in enumerate(zip(rings, rings[1:])):
+        va, vb = dist[k] / total, dist[k + 1] / total
+        for i in range(seg):
+            j = (i + 1) % seg
+            u0, u1 = i / seg, (i + 1) / seg
+            if len(a) == 1:
+                f = bm.faces.new((a[0], b[j], b[i])); uvs = ((u0 + u1) / 2, va), (u1, vb), (u0, vb)
+            elif len(b) == 1:
+                f = bm.faces.new((a[i], a[j], b[0])); uvs = (u0, va), (u1, va), ((u0 + u1) / 2, vb)
+            else:
+                f = bm.faces.new((a[i], a[j], b[j], b[i])); uvs = (u0, va), (u1, va), (u1, vb), (u0, vb)
+            for loop, uv in zip(f.loops, uvs):
+                loop[uv_layer].uv = uv
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    me = bpy.data.meshes.new("vase")
+    bm.to_mesh(me)
+    bm.free()
+    obj = C.new_object("vase", me)
+    C.shade_smooth(obj, 50)
+    obj.data.materials.append(C.get_material("vase", (0.9, 0.9, 0.86, 1), 0.0, 0.12))
+    print(f"[vase] {sum(len(p.vertices) - 2 for p in obj.data.polygons)} треугольников")
+    return obj
+
+
+CROWN = dict(radius=0.0675, band=0.012, low=-0.025, mid=-0.006, high=0.025, points=8)
+
+
+def crown_points():
+    """Положения зубцов (по центрам брусков физической формы) и камней между ними: (угол, x, y)."""
+    n = CROWN["points"]
+    spikes = [(2 * math.pi * i / n) for i in range(n)]
+    gems = [(2 * math.pi * (i + 0.5) / n) for i in range(n)]
+    return spikes, gems
+
+
+def build_crown():
+    """Корона: обод ⌀15 см, восемь зубцов с жемчужинами, камни на ободе. Высота 5 см, центр — в начале координат."""
+    c = CROWN
+    parts = []
+    bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=c["radius"], depth=c["mid"] - c["low"], end_fill_type="NOTHING", location=(0, 0, (c["mid"] + c["low"]) / 2))
+    band = bpy.context.active_object
+    sol = band.modifiers.new("solid", "SOLIDIFY")
+    sol.thickness = c["band"]
+    sol.offset = 0.0
+    bev = band.modifiers.new("bevel", "BEVEL")
+    bev.width = 0.0015
+    bev.segments = 2
+    C.apply_modifiers(band)
+    C.shade_smooth(band, 45)
+    parts.append(band)
+    spikes, gems = crown_points()
+    for a in spikes:
+        x, y = c["radius"] * math.cos(a), c["radius"] * math.sin(a)
+        bpy.ops.mesh.primitive_cone_add(vertices=4, radius1=0.026, radius2=0.004, depth=c["high"] - c["mid"] + 0.004, location=(x, y, (c["high"] + c["mid"]) / 2 - 0.004))
+        sp = bpy.context.active_object
+        sp.scale = (1.0, 0.24, 1.0)                      # плоский зубец
+        sp.rotation_euler = (0, 0, a + math.radians(90) + math.radians(45) * 0)
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        sp.rotation_euler = (0, 0, a + math.radians(90))
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+        C.shade_smooth(sp, 30)
+        parts.append(sp)
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=14, ring_count=8, radius=0.0062, location=(x, y, c["high"] - 0.004))
+        pearl = bpy.context.active_object
+        C.shade_smooth(pearl)
+        parts.append(pearl)
+    for a in gems:
+        r = c["radius"] + c["band"] / 2
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=14, ring_count=8, radius=0.0075, location=(r * math.cos(a), r * math.sin(a), (c["mid"] + c["low"]) / 2))
+        gem = bpy.context.active_object
+        gem.scale = (1.0, 1.0, 0.8)
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        C.shade_smooth(gem)
+        parts.append(gem)
+    bpy.ops.object.select_all(action="DESELECT")
+    for p in parts:
+        p.select_set(True)
+    bpy.context.view_layer.objects.active = parts[0]
+    bpy.ops.object.join()
+    obj = bpy.context.active_object
+    obj.name = "crown"
+    obj.data.name = "crown"
+    # после объединения начало координат осталось у обода — возвращаем его в центр короны,
+    # иначе модель и материал (маски камней по координатам объекта) съезжают по высоте
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    # у объединённых примитивов остаются свои UV-слои; оставляем один, иначе запекание и игра
+    # могут взять разные слои и текстура ляжет вперемешку
+    while obj.data.uv_layers:
+        obj.data.uv_layers.remove(obj.data.uv_layers[0])
+    obj.data.uv_layers.new(name="UVMap")
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(60), island_margin=0.02)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    obj.data.materials.clear()
+    obj.data.materials.append(C.get_material("crown", (1.0, 0.72, 0.25, 1), 1.0, 0.25))
+    print(f"[crown] {sum(len(p.vertices) - 2 for p in obj.data.polygons)} треугольников")
+    return obj
+
+
+def build_camera():
+    """Камера наблюдения из двух частей: cam_base — стойка (начало координат у подошвы),
+    cam_head — поворотная голова (начало координат в шарнире, объектив смотрит в -Y Blender = +Z игры)."""
+    base = _join("cam_base", [
+        _cyl("foot", (0, 0, 0.007), 0.05, 0.014, "metal", verts=32, bevel=0.003),
+        _cyl("pole", (0, 0, 0.26), 0.013, 0.5, "metal", verts=16),
+        _cyl("joint", (0, 0, 0.505), 0.02, 0.03, "steel", verts=16, bevel=0.003),
+    ])
+    head = _join("cam_head", [
+        _box("body", (0, 0.0, 0.0), (0.062, 0.12, 0.052), "metal", bevel=0.006),
+        _box("visor", (0, -0.03, 0.03), (0.07, 0.13, 0.006), "metal", bevel=0.002),
+        _cyl("lens_ring", (0, -0.066, 0.0), 0.024, 0.016, "steel", axis="Y", verts=24, bevel=0.002),
+        _cyl("lens", (0, -0.075, 0.0), 0.017, 0.006, "metal", axis="Y", verts=24),
+    ])
+    return [base, head]

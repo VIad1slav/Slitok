@@ -7,6 +7,15 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { WORLD } from './config.js';
 
+// Тема по умолчанию (хранилище банка). Тема ограбления из src/heists.js переопределяет любые поля.
+//   spot/fill/rim — цвета и сила света; fog — цвет тумана; tint — множители цвета материалов комнаты [r, g, b];
+//   table — имя материала стола; set — имя набора обстановки (assets/models/set_<имя>.glb).
+export const DEFAULT_THEME = {
+  spotColor: 0xffe2b8, spotIntensity: 15, fillSky: 0x6f86b8, fillGround: 0x0b0a0c, fillIntensity: 0.35,
+  rimColor: 0xff9a4a, rimIntensity: 3, fog: 0x050506, tint: { concrete: [1, 1, 1], tiles: [1, 1, 1], wood: [1, 1, 1] },
+  table: 'wood', set: 'bank',
+};
+
 export const LIGHT = {
   spotIntensity: 15, spotAngle: 0.5, spotPenumbra: 0.55,
   fillIntensity: 0.35, rimIntensity: 3, exposure: 1.0,
@@ -50,6 +59,8 @@ export class Stage {
     this._buildLights();
     this._buildDust();
     this._buildSafeZone();
+    this.watch = 0; this.watchK = 0;
+    this.setTheme(null);
 
     // Постобработка: MSAA-буфер → bloom (свечение золота и ламп) → тонмаппинг + sRGB.
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -86,6 +97,8 @@ export class Stage {
       if (n.includes('steel')) return M.steel;
       if (n.includes('metal')) return M.metal;
       if (n.includes('velvet')) return M.velvet;
+      if (n.includes('brass')) return M.brass;
+      if (n.includes('canvas')) return M.canvas;
       return M.concrete;
     };
     const adopt = (root, cast) => {
@@ -94,6 +107,13 @@ export class Stage {
     };
     this.usedGlb = { room: !!models.room, table: !!models.table };
 
+    // наборы обстановки ограблений: показывается один (см. setTheme)
+    this.sets = {};
+    for (const [name, root] of Object.entries(models)) {
+      if (!name.startsWith('set_') || !root) continue;
+      adopt(root, false); root.visible = false; this.sets[name.slice(4)] = root;
+    }
+    this.tableMeshes = [];
     if (models.room) adopt(models.room, false);
     else {
       const floor = new THREE.Mesh(scaleUV(new THREE.PlaneGeometry(rw, rd), rw, rd), M.tiles);
@@ -107,10 +127,10 @@ export class Stage {
       bulb.rotation.x = Math.PI / 2; bulb.position.set(...WORLD.spot); scene.add(bulb);
     }
 
-    if (models.table) adopt(models.table, true);
+    if (models.table) { adopt(models.table, true); models.table.traverse((o) => { if (o.isMesh) this.tableMeshes.push(o); }); }
     else {
       const top = new THREE.Mesh(scaleUV(new THREE.BoxGeometry(tw, tt, td), tw, td), M.wood);
-      top.position.y = ty - tt / 2; top.castShadow = true; top.receiveShadow = true; scene.add(top);
+      top.position.y = ty - tt / 2; top.castShadow = true; top.receiveShadow = true; scene.add(top); this.tableMeshes.push(top);
       for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
         const leg = new THREE.Mesh(new THREE.BoxGeometry(0.07, ty - tt, 0.07), M.wood);
         leg.position.set(sx * (tw / 2 - 0.08), (ty - tt) / 2, sz * (td / 2 - 0.08)); leg.castShadow = true; scene.add(leg);
@@ -131,7 +151,7 @@ export class Stage {
 
     this.fill = new THREE.HemisphereLight(0x6f86b8, 0x0b0a0c, LIGHT.fillIntensity); // холодный заполняющий
     scene.add(this.fill);
-    const rim = new THREE.SpotLight(0xff9a4a, LIGHT.rimIntensity, 7, 0.7, 0.8, 1.5);     // тёплый контровой
+    const rim = this.rim = new THREE.SpotLight(0xff9a4a, LIGHT.rimIntensity, 7, 0.7, 0.8, 1.5);     // тёплый контровой
     rim.position.set(-1.9, 1.9, -1.9); rim.target.position.set(0, WORLD.tableY, 0);
     scene.add(rim, rim.target);
 
@@ -186,6 +206,21 @@ export class Stage {
     this.scene.add(g);
   }
 
+  /** Обстановка ограбления: свет, оттенки комнаты, материал стола, набор предметов. */
+  setTheme(theme) {
+    const t = { ...DEFAULT_THEME, ...(theme || {}) }, tint = { ...DEFAULT_THEME.tint, ...(theme?.tint || {}) };
+    if (this.themeKey === JSON.stringify(t)) return;
+    this.themeKey = JSON.stringify(t);
+    this.spot.color.set(t.spotColor); this.spotBase = t.spotIntensity;
+    this.fillSky = new THREE.Color(t.fillSky); this.fill.groundColor.set(t.fillGround); this.fillBase = t.fillIntensity;
+    this.rim.color.set(t.rimColor); this.rim.intensity = t.rimIntensity;
+    this.scene.fog.color.set(t.fog);
+    for (const k of ['concrete', 'tiles', 'wood']) this.M[k].color.setRGB(...tint[k]);
+    const tableMat = this.M[t.table] || this.M.wood;
+    for (const m of this.tableMeshes) m.material = tableMat;
+    for (const [name, root] of Object.entries(this.sets)) root.visible = name === t.set;
+  }
+
   /** Настроить сцену под уровень: положение «сейфа», боковая камера. */
   setLevel(level) {
     this.safe.position.x = level.safe.pos[0]; this.safe.position.z = level.safe.pos[1];
@@ -194,6 +229,7 @@ export class Stage {
     this.sideLook.set(bx, WORLD.tableY + h * 0.45, bz);
     this.sidePos.set(bx + o[0], WORLD.tableY + h * 0.5 + o[1], bz + o[2]);
     this.sideBlend = this.sideTarget = 0; this.sideUses = WORLD.sideCam.uses;
+    this.watch = 0; this.watchK = 0;
     this.setAlarm(false);
   }
 
@@ -248,11 +284,16 @@ export class Stage {
     if (this.alarm) {
       const k = 0.5 + 0.5 * Math.sin(time * 9);
       this.alarmLight.intensity = 30 * k;
-      this.spot.intensity = LIGHT.spotIntensity * (0.55 + 0.25 * (1 - k));
-    } else this.spot.intensity = LIGHT.spotIntensity;
+      this.spot.intensity = this.spotBase * (0.55 + 0.25 * (1 - k));
+    } else this.spot.intensity = this.spotBase;
+    // камера наблюдения смотрит — заполняющий свет краснеет (значение watch ставит ловушка)
+    this.watchK += ((this.watch || 0) - this.watchK) * (1 - Math.exp(-10 * dt));
+    this.fill.color.copy(this.fillSky).lerp(_red, this.watchK * 0.85);
+    this.fill.intensity = this.fillBase * (1 + this.watchK * 2.2);
   }
 
   render() { this.composer.render(); }
 }
 
+const _red = new THREE.Color(0xff2010);
 const _p = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _m = new THREE.Matrix4();

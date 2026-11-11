@@ -164,6 +164,16 @@ const PROC = {
     }
     return { albedo, rough, height, metal: 0, normalStrength: 1.5 };
   },
+  vase(S) {
+    const n = fbm(S, 3, 3, 4, 91);
+    const band = (y) => { const v = y / S; return (v > 0.3 && v < 0.36) || (v > 0.62 && v < 0.66); };
+    const albedo = paint(S, (i, x, y) => (band(y) ? [30, 60, 140] : [232 + n[i] * 14, 232 + n[i] * 12, 224 + n[i] * 10]));
+    return { albedo, rough: n.map((v) => clamp01(0.1 + v * 0.08)), height: n.map((v) => 0.5 + v * 0.02), metal: 0, normalStrength: 0.3 };
+  },
+  crown(S) {
+    const p = PROC.gold(S);
+    return { ...p, normalStrength: 0.8 };
+  },
   velvet_red(S) {
     const n = fbm(S, 6, 6, 5, 71), fine = fbm(S, 96, 96, 2, 72);
     const albedo = paint(S, (i) => { const v = 0.75 + n[i] * 0.3 + fine[i] * 0.12; return [128 * v, 14 * v, 22 * v]; });
@@ -275,11 +285,11 @@ function pbr(set, extra = {}, physical = false) {
 }
 
 export async function createMaterials() {
-  const [gold, skin, glove, wood, concrete, tiles, velvet, glassMaps] = await Promise.all([
+  const [gold, skin, glove, wood, concrete, tiles, velvet, glassMaps, vase, crown, gloveLight] = await Promise.all([
     loadSet('gold'), loadSet('skin'), loadSet('glove'), loadSet('wood_table', 1), loadSet('wall_concrete', 1),
-    loadSet('floor_tiles', 1), loadSet('velvet_red', 1), loadGlassMaps(),
+    loadSet('floor_tiles', 1), loadSet('velvet_red', 1), loadGlassMaps(), loadSet('vase'), loadSet('crown'), tryLoad('glove_light_albedo.png'),
   ]);
-  const sets = { gold, skin, glove, wood, concrete, tiles, velvet };
+  const sets = { gold, skin, glove, wood, concrete, tiles, velvet, vase, crown };
   const fallbacks = Object.entries(sets).filter(([, s]) => s.fallback).map(([k]) => k);
   if (glassMaps.fallback) fallbacks.push('glass');
 
@@ -317,6 +327,16 @@ export async function createMaterials() {
   M.steel = new THREE.MeshStandardMaterial({ color: 0xaab0b8, metalness: 1, roughness: 0.12, envMapIntensity: 1.0 });
   M.sleeve = new THREE.MeshStandardMaterial({ color: 0x060607, metalness: 0, roughness: 0.92, envMapIntensity: 0.15 });
   M.lampGlow = new THREE.MeshBasicMaterial({ color: 0xfff1d0, toneMapped: false });
+  M.stone = new THREE.MeshStandardMaterial({ color: 0x1b1e25, metalness: 0, roughness: 0.42, envMapIntensity: 0.5 });   // стол музея
+  M.brass = new THREE.MeshStandardMaterial({ color: 0xc9a045, metalness: 1, roughness: 0.32, envMapIntensity: 0.9 });
+  M.canvas = new THREE.MeshStandardMaterial({ color: 0x1a2230, metalness: 0, roughness: 0.75, envMapIntensity: 0.2 });
+  // добыча музея
+  M.vase = pbr(vase, { color: 0xc8c8c8, envMapIntensity: 0.6, clearcoat: 0.8, clearcoatRoughness: 0.12 }, true);   // чуть притемнена: под прожектором белый фарфор пересвечивался
+  M.crown = pbr(crown, { envMapIntensity: 1.5 });
+  // светлая перчатка под подкраску (цветные перчатки в src/cosmetics.js): albedo свой, нормали и ORM — от чёрной
+  if (gloveLight) {
+    M.gloveLight = pbr({ ...glove, map: setup(gloveLight, true, 1) }, { envMapIntensity: 0.3 });
+  } else { M.gloveLight = M.glove.clone(); M.gloveLight.color.setRGB(9, 9, 9); fallbacks.push('glove_light'); }
 
   // Текстуры окружения тайлятся по мировым координатам: UV моделей заданы в метрах.
   wood.map.repeat.set(1.2, 1.2); wood.normalMap.repeat.set(1.2, 1.2); wood.ormMap.repeat.set(1.2, 1.2);

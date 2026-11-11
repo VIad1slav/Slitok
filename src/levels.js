@@ -6,6 +6,9 @@
 // holes      — отверстия. wall: 'top' | 'front' (к игроку) | 'back' | 'left' | 'right'.
 //              shape 'rect' (size: [u, v]) или 'circle' (radius). offset [u, v] от центра стенки.
 //              Оси стенки: top — u=X, v=Z; front/back — u=X, v=Y; left/right — u=Z, v=Y.
+// loot       — список предметов добычи: [{ type, pos, yaw, mass, friction, role }], типы — в src/loot-types.js.
+//              Старая короткая запись для одного слитка: bar: { pos, yaw, mass, friction }.
+// blocked    — 'flat': предмет не должен проходить в отверстие плашмя, только ребром (проверяет tools/check_levels.mjs).
 // bar.pos    — [x, y, z] нижней точки слитка относительно центра дна коробки. yaw в градусах
 //              (0 — слиток лежит вдоль X, 90 — вдоль Z).
 // hand       — стартовая поза кисти (pos — мир, yaw/pitch — градусы).
@@ -117,8 +120,155 @@ export const LEVELS = [
     timeLimit: 90,
     stars: { three: { time: 35, touches: 2 }, two: { time: 65, touches: 5 } },
   },
+  // ------------------------------------------------------------------ Ломбард: новые уровни
+  {
+    id: 9,
+    name: 'Узкая щель',
+    hint: 'Щель в крышке идёт поперёк. Поверни кисть клавишами Q / E, чтобы рука легла вдоль щели.',
+    box: { pos: [-0.12, -0.1], size: [0.5, 0.3, 0.42], holes: [{ wall: 'top', shape: 'rect', size: [0.36, 0.14], offset: [0.03, 0] }] },
+    pedestal: { size: [0.3, 0.05, 0.16], pos: [-0.02, 0] },
+    bar: { pos: [-0.02, 0.05, 0], yaw: 0, mass: 1, friction: 0.6 },
+    hand: { pos: [-0.12, 1.36, 0.0], yaw: 0, pitch: -60 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    stars: { three: { time: 25, touches: 1 }, two: { time: 45, touches: 4 } },
+  },
+  {
+    id: 10,
+    name: 'Плита в глубине',
+    hint: 'Датчик веса и отверстие сбоку. Сначала плавно приподними слиток, и только потом тяни наружу.',
+    box: { pos: [-0.2, -0.1], size: [0.58, 0.3, 0.4], holes: [{ wall: 'right', shape: 'rect', size: [0.24, 0.2], offset: [0, -0.005] }] },
+    pedestal: { size: [0.24, 0.06, 0.18], pos: [-0.03, 0], plate: true },
+    bar: { pos: [-0.03, 0.06, 0], yaw: 0, mass: 2, friction: 0.6 },
+    hand: { pos: [0.38, 1.07, -0.1], yaw: 90, pitch: 0 },
+    safe: { pos: [0.52, 0.22], radius: 0.16 },
+    traps: [{ type: 'plate', maxLiftSpeed: 0.24, alarmSeconds: 3, liftHeight: 0.03 }],
+    stars: { three: { time: 20, touches: 1 }, two: { time: 40, touches: 4 } },
+  },
+  {
+    id: 11,
+    name: 'Экзамен ломбарда',
+    hint: 'Горячий слиток лежит поперёк узкого отверстия. Разворачивай короткими перехватами — дольше 3 секунд не удержать.',
+    box: { pos: [-0.1, -0.12], size: [0.46, 0.28, 0.44], holes: [{ wall: 'front', shape: 'rect', size: [0.15, 0.125], offset: [0, -0.05] }] },
+    pedestal: { size: [0.34, 0.02, 0.3], pos: [0, -0.02] },
+    bar: { pos: [0, 0.02, -0.02], yaw: 0, mass: 1.5, friction: 0.5 },
+    hand: { pos: [-0.1, 1.0, 0.36], yaw: 0, pitch: 0 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    monkey: true,
+    traps: [{ type: 'hot', holdTime: 3, cooldown: 1.1 }],
+    stars: { three: { time: 60, touches: 2 }, two: { time: 120, touches: 6 } },
+  },
+  // ------------------------------------------------------------------ Музей
+  {
+    id: 12,
+    name: 'Ваза',
+    hint: 'Ваза бьётся: от удара трескается, от второго — вдребезги. Ставь её на стол мягко, не роняй.',
+    box: { pos: [-0.12, -0.1], size: [0.5, 0.34, 0.42], holes: [{ wall: 'top', shape: 'rect', size: [0.3, 0.3], offset: [0, 0.03] }] },
+    pedestal: { size: [0.2, 0.05, 0.16], pos: [0, 0] },
+    loot: [{ type: 'vase', pos: [0, 0.05, 0] }],
+    hand: { pos: [-0.12, 1.44, 0.0], yaw: 0, pitch: -60 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    stars: { three: { time: 25, touches: 1 }, two: { time: 45, touches: 4 } },
+  },
+  {
+    id: 13,
+    name: 'Ночной сторож',
+    hint: 'Камера то отворачивается, то смотрит. Писк и жёлтая лампочка — замри. Пока свет красный, не двигайся.',
+    box: { pos: [-0.2, -0.1], size: [0.58, 0.28, 0.4], holes: [{ wall: 'right', shape: 'rect', size: [0.24, 0.17], offset: [0, -0.02] }] },
+    pedestal: { size: [0.32, 0.03, 0.14], pos: [-0.03, 0] },
+    bar: { pos: [-0.03, 0.03, 0], yaw: 0, mass: 1.5, friction: 0.6 },
+    hand: { pos: [0.38, 1.03, -0.1], yaw: 90, pitch: 0 },
+    safe: { pos: [0.52, 0.22], radius: 0.16 },
+    traps: [{ type: 'camera', away: 5, warn: 0.8, watch: 2.5, phase: 2.5 }],   // phase: первое предупреждение — через 2,5 с после старта
+    stars: { three: { time: 25, touches: 1 }, two: { time: 50, touches: 4 } },
+  },
+  {
+    id: 14,
+    name: 'Корона',
+    hint: 'Корона широкая и низкая. Щель под неё тоже: неси плашмя и не задирай руку.',
+    box: { pos: [-0.1, -0.12], size: [0.46, 0.28, 0.44], holes: [{ wall: 'front', shape: 'rect', size: [0.21, 0.135], offset: [0, -0.0375] }] },
+    pedestal: { size: [0.22, 0.02, 0.22], pos: [0, -0.02] },
+    loot: [{ type: 'crown', pos: [0, 0.02, -0.02] }],
+    hand: { pos: [-0.1, 1.0, 0.36], yaw: 0, pitch: 0 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    stars: { three: { time: 20, touches: 1 }, two: { time: 40, touches: 4 } },
+  },
+  {
+    id: 15,
+    name: 'Корона ребром',
+    hint: 'Щель узкая и высокая — плашмя корона не пройдёт. Возьми её, зажми ПКМ и поверни кисть ребром.',
+    box: { pos: [-0.1, -0.12], size: [0.46, 0.28, 0.44], holes: [{ wall: 'front', shape: 'rect', size: [0.135, 0.2], offset: [0, -0.02] }] },
+    pedestal: { size: [0.22, 0.02, 0.22], pos: [0, -0.02] },
+    loot: [{ type: 'crown', pos: [0, 0.02, -0.02] }],
+    hand: { pos: [-0.1, 1.0, 0.36], yaw: 0, pitch: 0 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    blocked: 'flat',
+    stars: { three: { time: 25, touches: 2 }, two: { time: 50, touches: 5 } },
+  },
+  {
+    id: 16,
+    name: 'Ваза под лучами',
+    hint: 'Два луча по бокам не гаснут, третий над вазой мигает. Опускай руку ровно между боковыми и успей за одну паузу.',
+    box: { pos: [-0.12, -0.1], size: [0.5, 0.34, 0.42], holes: [{ wall: 'top', shape: 'rect', size: [0.3, 0.3], offset: [0, 0.03] }] },
+    pedestal: { size: [0.2, 0.05, 0.16], pos: [0, 0] },
+    loot: [{ type: 'vase', pos: [0, 0.05, 0] }],
+    hand: { pos: [-0.12, 1.44, 0.0], yaw: 0, pitch: -60 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    traps: [{
+      type: 'lasers',
+      failDelay: 1.3,
+      beams: [
+        { from: [-0.095, 0.26, -0.21], to: [-0.095, 0.26, 0.21] },
+        { from: [0.095, 0.26, -0.21], to: [0.095, 0.26, 0.21] },
+        { from: [-0.25, 0.29, 0.06], to: [0.25, 0.29, 0.06], on: 1.6, off: 4.2 },
+      ],
+    }],
+    stars: { three: { time: 40, touches: 1 }, two: { time: 75, touches: 4 } },
+  },
+  {
+    id: 17,
+    name: 'Под присмотром',
+    hint: 'Два ритма сразу: мигающий луч и камера. Входи, когда луч погас, а камера только что отвернулась.',
+    box: { pos: [-0.2, -0.1], size: [0.58, 0.3, 0.42], holes: [{ wall: 'right', shape: 'rect', size: [0.27, 0.2], offset: [0, -0.02] }] },
+    pedestal: { size: [0.32, 0.03, 0.14], pos: [-0.035, 0] },
+    bar: { pos: [-0.035, 0.03, 0], yaw: 0, mass: 1.5, friction: 0.6 },
+    hand: { pos: [0.4, 1.03, -0.1], yaw: 90, pitch: 0 },
+    safe: { pos: [0.52, 0.22], radius: 0.16 },
+    traps: [
+      { type: 'lasers', failDelay: 1.3, beams: [
+        { from: [0.19, 0.2, -0.21], to: [0.19, 0.2, 0.21] },
+        { from: [0.1, 0.018, -0.21], to: [0.1, 0.018, 0.21] },
+        { from: [0.14, 0, 0], to: [0.14, 0.3, 0], on: 1.6, off: 3.4 },
+      ] },
+      { type: 'camera', away: 6, warn: 0.8, watch: 2.2, autoNeed: 3.6 },
+    ],
+    stars: { three: { time: 45, touches: 1 }, two: { time: 90, touches: 4 } },
+  },
+  {
+    id: 18,
+    name: 'Зал короны',
+    hint: 'Всё сразу: узкая высокая щель, лучи по бокам и сверху, камера. Корону — ребром, руку — ровно по центру.',
+    box: { pos: [-0.1, -0.12], size: [0.46, 0.28, 0.44], holes: [{ wall: 'front', shape: 'rect', size: [0.135, 0.2], offset: [0, -0.02] }] },
+    pedestal: { size: [0.22, 0.02, 0.22], pos: [0, -0.02] },
+    loot: [{ type: 'crown', pos: [0, 0.02, -0.02] }],
+    hand: { pos: [-0.1, 1.0, 0.36], yaw: 0, pitch: 0 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    blocked: 'flat',
+    traps: [
+      { type: 'lasers', failDelay: 1.3, beams: [
+        { from: [-0.12, 0, 0.1], to: [-0.12, 0.28, 0.1] },
+        { from: [0.12, 0, 0.1], to: [0.12, 0.28, 0.1] },
+        { from: [-0.23, 0.235, -0.02], to: [0.23, 0.235, -0.02] },
+      ] },
+      { type: 'camera', away: 5.5, warn: 0.8, watch: 2.3 },
+    ],
+    stars: { three: { time: 35, touches: 2 }, two: { time: 70, touches: 5 } },
+  },
 ];
 
+// Пороги звёзд новых уровней поставлены по правилу от времени автопилота T (эталон в tools/test/play.mjs):
+// 3 звезды — не дольше max(20 с, 3·T), 2 звезды — не дольше max(40 с, 6·T), с округлением вверх до 5 с.
+// Исключения — уровни, где автопилот разворачивает слиток перехватами (3 и 11): он там заведомо медленнее человека.
+// Это заглушка до игры живых людей.
 export function starsFor(level, time, touches) {
   const s = level.stars;
   if (time <= s.three.time && touches <= s.three.touches) return 3;

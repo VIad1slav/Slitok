@@ -4,13 +4,18 @@
 // levels      — id уровней из src/levels.js в порядке прохождения. Рекорды хранятся по id,
 //               поэтому уровень можно переставить в другое ограбление, не потеряв сохранения.
 // unlockStars — сколько звёзд всего (по всем ограблениям) нужно, чтобы открыть это ограбление.
+// theme       — обстановка: свет, оттенки, стол, набор предметов (поля — DEFAULT_THEME в src/scene.js). Нет — хранилище банка.
 import { LEVELS } from './levels.js';
 
 export const STARS_PER_LEVEL = 3;
 
 export const HEISTS = [
-  { id: 'pawnshop', name: 'Ломбард', tagline: 'Обучение: слиток и первые ловушки', unlockStars: 0, levels: [1, 2, 3, 4, 7] },
-  { id: 'museum', name: 'Музей', tagline: 'Лазеры, камера, хрупкая ваза', unlockStars: 12, levels: [5] },
+  { id: 'pawnshop', name: 'Ломбард', tagline: 'Обучение: слиток и первые ловушки', unlockStars: 0, levels: [1, 2, 9, 3, 4, 10, 7, 11] },
+  {
+    id: 'museum', name: 'Музей', tagline: 'Лазеры, камера, хрупкая ваза, корона', unlockStars: 12, levels: [12, 5, 13, 14, 15, 16, 17, 18],
+    // холодный белый луч и синие тени, светлые стены, каменный стол
+    theme: { spotColor: 0xe6eeff, spotIntensity: 12, fillSky: 0x5a7ad0, fillIntensity: 0.5, rimColor: 0x8fb0ff, rimIntensity: 2.5, fog: 0x05070c, tint: { concrete: [1.5, 1.6, 1.9], tiles: [1, 1.02, 1.12] }, table: 'stone', set: 'museum' },
+  },
   { id: 'bank', name: 'Банк', tagline: 'Перегородки, заслонка, весы', unlockStars: 26, levels: [] },
   { id: 'casino', name: 'Казино', tagline: 'Карусель, темнота, скользкая добыча', unlockStars: 43, levels: [6, 8] },
   { id: 'boss', name: 'Сейф босса', tagline: 'Всё вместе', unlockStars: 62, levels: [] },

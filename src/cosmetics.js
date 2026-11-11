@@ -9,6 +9,8 @@
 export const COSMETICS = [
   { id: 'skin', kind: 'hand', name: 'кожа', material: 'skin', unlockStars: 0 },
   { id: 'glove', kind: 'hand', name: 'чёрная перчатка', material: 'glove', unlockStars: 0 },
+  { id: 'glove_red', kind: 'hand', name: 'красная перчатка', material: 'gloveLight', tint: 0x8c1512, unlockStars: 10 },
+  { id: 'glove_white', kind: 'hand', name: 'белая перчатка музейщика', material: 'gloveLight', tint: 0xd9d5c9, unlockStars: 22 },
 ];
 
 export const cosmeticById = (id) => COSMETICS.find((c) => c.id === id) || COSMETICS[0];

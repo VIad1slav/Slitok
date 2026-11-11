@@ -112,6 +112,8 @@ export class AudioSys {
   grab() { if (this.ctx) { this._noise(0.12, 0.07, 'lowpass', 900); this._tone(2400, 0.03, 0.2); } }
   /** Предмет засчитан в сейфе (не последний). */
   bank() { if (this.ctx) { this._tone(1319, 0.14, 0.35, 'triangle'); this._tone(1976, 0.08, 0.5, 'sine', 0.07); } }
+  /** Короткий сигнал (камера, заслонка): частота, громкость, длительность, задержка, форма волны. */
+  beep(freq, peak = 0.1, dur = 0.1, when = 0, type = 'square') { if (this.ctx) this._tone(freq, peak, dur, type, when); }
   uiClick() { if (this.ctx) this._tone(880, 0.08, 0.05, 'triangle'); }
   zap() { if (this.ctx) { this._tone(1800, 0.3, 0.25, 'sawtooth', 0, 200); this._noise(0.3, 0.2, 'bandpass', 4000, 2); } }
   sizzle() { if (this.ctx) this._noise(0.35, 0.5, 'highpass', 4500); }

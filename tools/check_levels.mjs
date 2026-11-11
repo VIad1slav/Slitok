@@ -39,8 +39,16 @@ for (const lvl of LEVELS) {
       notes.push(`сверху ${(2 * a).toFixed(2)}×${(2 * b).toFixed(2)}`);
     } else {
       // сбоку слиток вынимается вдоль предплечья, под ладонью
-      const fits = circle ? 2 * a >= Math.hypot(stackW, stackH) + MARGIN : 2 * a >= stackW + MARGIN && 2 * b >= stackH + MARGIN;
-      if (!fits) problems.push(`кулак со слитком (${stackW.toFixed(3)}×${stackH.toFixed(3)}) не проходит`);
+      if (lvl.blocked === 'flat') {
+        // предмет должен проходить только ребром (кисть повёрнута на 90°): плашмя — нет, ребром — да
+        if (2 * a >= stackW + MARGIN) problems.push('ловушка не работает: предмет проходит плашмя');
+        const edgeW = 2 * palmTop + barH, edgeH = Math.max(barL, palmW);
+        if (2 * a < edgeW + MARGIN || 2 * b < edgeH + MARGIN) problems.push(`ребром (${edgeW.toFixed(3)}×${edgeH.toFixed(3)}) предмет не проходит`);
+        notes.push('только ребром');
+      } else {
+        const fits = circle ? 2 * a >= Math.hypot(stackW, stackH) + MARGIN : 2 * a >= stackW + MARGIN && 2 * b >= stackH + MARGIN;
+        if (!fits) problems.push(`кулак с предметом (${stackW.toFixed(3)}×${stackH.toFixed(3)}) не проходит`);
+      }
       const crossFits = 2 * a >= barL + MARGIN;
       if (lvl.monkey && crossFits) problems.push('ловушка для обезьян не работает: слиток проходит поперёк');
       // досягаемость: расстояние от плоскости отверстия до центра слитка
@@ -68,5 +76,5 @@ const campaignProblems = [dup.length && `повторяются id ${dup}`, twic
 if (campaignProblems.length) failed++;
 console.log(`${campaignProblems.length ? ' FAIL ' : '  ok  '} кампания: ${campaignProblems.length ? campaignProblems.join('; ') : `${campaignOrder().length} уровней в ${HEISTS.filter((h) => h.levels.length).length} ограблениях`}`);
 const [stackW, stackH] = lastStack;
-console.log(`\nКулак со слитком: ${stackW.toFixed(3)} × ${stackH.toFixed(3)} м, предплечье ⌀${forearmD.toFixed(3)} м, досягаемость ${reach.toFixed(3)} м`);
+console.log(`\nКулак с предметом последнего уровня: ${stackW.toFixed(3)} × ${stackH.toFixed(3)} м, предплечье ⌀${forearmD.toFixed(3)} м, досягаемость ${reach.toFixed(3)} м`);
 process.exit(failed ? 1 : 0);
