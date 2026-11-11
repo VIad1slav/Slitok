@@ -1,0 +1,371 @@
+// Golden Grab — инициализация и игровой цикл.
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+import { PHYS, HAND, GLASS, WORLD } from './config.js';
+import { LEVELS, starsFor } from './levels.js';
+import { createMaterials } from './textures.js';
+import { loadModels } from './assets.js';
+import { Stage } from './scene.js';
+import { GlassBox, GROUP } from './box.js';
+import { Bar } from './bar.js';
+import { Hand } from './hand.js';
+import { Pedestal, createTraps } from './traps.js';
+import { AudioSys } from './audio.js';
+import { UI, loadSave, storeSave } from './ui.js';
+import { autopilotFor } from './autoplay.js';
+
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+
+class Game {
+  constructor() {
+    this.state = 'loading';     // loading | menu | playing | paused | ending | won | lost
+    this.levelIndex = 0;
+    this.acc = 0; this.clock = 0; this.timeScale = 1;
+    this.keys = new Set(); this.rmb = false; this.hadLock = false;
+    this.autopilot = null;
+    this.hud = { meter: null };
+    this.fps = 60; this._fpsAcc = 0; this._fpsFrames = 0; this._lowFpsTime = 0;
+    this.save = loadSave();
+    this.audio = new AudioSys();
+    this.audio.volume = this.save.volume;
+  }
+
+  async init() {
+    this.ui = new UI(document.getElementById('ui'), {
+      click: () => { this.audio.init(); this.audio.uiClick(); },
+      play: (i) => this.startLevel(i),
+      resume: () => this.resume(),
+      restart: () => this.startLevel(this.levelIndex),
+      next: () => this.startLevel(Math.min(this.levelIndex + 1, LEVELS.length - 1)),
+      menu: () => this.toMenu(),
+      skin: (s) => this.hand.setSkin(s),
+      volume: (v) => this.audio.setVolume(v),
+    }, this.save);
+    this.ui.show('loading');
+
+    const [{ models, missing }, mats] = await Promise.all([loadModels((p) => this.ui.setLoading(p * 0.7)), createMaterials()]);
+    this.models = models; this.M = mats.M;
+    this.assetReport = { missingModels: missing, fallbackTextures: mats.fallbacks };
+    if (missing.length || mats.fallbacks.length) console.info('[Golden Grab] запасные ассеты:', this.assetReport);
+    this.ui.setLoading(0.9);
+
+    this.stage = new Stage(document.getElementById('c'), this.M, models);
+    this._initPhysics();
+    this.hand = new Hand({ scene: this.stage.scene, world: this.world, M: this.M, glbScene: models.hand });
+    this.hand.setSkin(this.save.skin);
+    this._bindInput();
+
+    this._loadLevel(0);
+    this.state = 'menu';
+    this.ui.setLoading(1);
+    this.ui.show('menu');
+    this._last = performance.now();
+    requestAnimationFrame((t) => this._frame(t));
+  }
+
+  _initPhysics() {
+    const world = this.world = new CANNON.World({ gravity: new CANNON.Vec3(0, PHYS.gravity, 0) });
+    world.solver.iterations = PHYS.solverIterations;
+    world.allowSleep = false;
+    world.defaultContactMaterial.friction = 0.45;
+    world.defaultContactMaterial.restitution = 0;
+    this.staticMaterial = new CANNON.Material('static');
+    this.barMaterial = new CANNON.Material('bar');
+    this.barContact = new CANNON.ContactMaterial(this.barMaterial, this.staticMaterial, { friction: PHYS.staticFriction, restitution: PHYS.restitution });
+    world.addContactMaterial(this.barContact);
+
+    const [tw, tt, td] = WORLD.tableSize, c = new THREE.Vector3(0, WORLD.tableY - tt / 2, 0), h = new THREE.Vector3(tw / 2, tt / 2, td / 2);
+    const table = new CANNON.Body({ type: CANNON.Body.STATIC, material: this.staticMaterial, collisionFilterGroup: GROUP.STATIC, collisionFilterMask: GROUP.BAR });
+    table.addShape(new CANNON.Box(new CANNON.Vec3(h.x, h.y, h.z)));
+    table.position.set(c.x, c.y, c.z);
+    table.userData = { kind: 'table' };
+    world.addBody(table);
+    this.tableCollider = { type: 'box', kind: 'table', c, h, q: null, qi: null };
+  }
+
+  // --- уровни ---------------------------------------------------------------
+  _clearLevel() {
+    this.traps?.forEach((t) => t.dispose());
+    this.pedestal?.dispose(); this.bar?.dispose(); this.box?.dispose();
+    this.traps = []; this.pedestal = this.bar = this.box = null;
+    this.audio.sirenStop();
+  }
+
+  _loadLevel(index) {
+    this._clearLevel();
+    const level = this.level = LEVELS[index];
+    this.levelIndex = index;
+    const scene = this.stage.scene, world = this.world, M = this.M, staticMaterial = this.staticMaterial;
+    this.barContact.friction = level.bar.friction ?? PHYS.staticFriction;
+    this.box = new GlassBox({ scene, world, level, M, glbRoot: this.models.glass_box, staticMaterial });
+    if (level.pedestal) this.pedestal = new Pedestal({ scene, world, M, level, glbScene: this.models.pedestal, staticMaterial });
+    this.bar = new Bar({ scene, world, M, glbScene: this.models.gold_bar, level, material: this.barMaterial });
+    this.bar.body.addEventListener('collide', (e) => this._onBarCollide(e));
+    this.traps = createTraps(level, { scene, world, M, level, bar: this.bar, staticMaterial });
+    this._refreshStatics();
+    this.hand.reset(level);
+    this.stage.setLevel(level);
+
+    this.time = 0; this.touches = 0; this.winTimer = 0; this.endTimer = 0; this.endAction = null;
+    this.lastGlassContact = -9; this.lastHit = -9; this.alarmState = null; this.safePulse = 0;
+    this.hud.meter = null; this.acc = 0;
+  }
+
+  _refreshStatics() {
+    this.hand.statics = [...this.box.colliders, this.tableCollider, ...(this.pedestal?.colliders || []), ...this.traps.flatMap((t) => t.colliders || [])];
+  }
+
+  startLevel(index) {
+    this.audio.init();
+    this._loadLevel(index);
+    this.state = 'playing';
+    this.ui.hideScreens(); this.ui.showHud(true); this.ui.startLevel(this.level);
+    this._requestLock();
+  }
+
+  toMenu() {
+    this.state = 'menu'; this.audio.sirenStop(); this.stage.setAlarm(false);
+    this.ui.showHud(false); this.ui.show('menu');
+    document.exitPointerLock?.();
+  }
+
+  pause() {
+    if (this.state !== 'playing') return;
+    this.state = 'paused'; this.hand.setGrip(false);
+    this.audio.sirenStop();
+    this.ui.show('pause');
+    document.exitPointerLock?.();
+  }
+
+  resume() {
+    if (this.state !== 'paused') return;
+    this.state = 'playing'; this.ui.hideScreens();
+    if (this.alarmState) this.audio.sirenStart();
+    this._requestLock();
+  }
+
+  // --- события игры -----------------------------------------------------------
+  toast(text) { this.ui.toast(text); }
+
+  /** Тревога: сирена, красный свет и обратный отсчёт до провала. */
+  alarm(seconds, text, hideCount = false) {
+    if (this.alarmState || this.state !== 'playing') return;
+    this.alarmState = { left: seconds, text, hideCount };
+    this.stage.setAlarm(true);
+    this.audio.sirenStart();
+  }
+
+  fail(reason) {
+    if (this.state !== 'playing') return;
+    this.state = 'ending'; this.endTimer = 1.3; this.result = 'lost: ' + reason;
+    this.hand.setGrip(false);
+    this.endAction = () => {
+      this.state = 'lost'; this.audio.sirenStop(); this.audio.fail();
+      this.ui.showLose(reason);
+      document.exitPointerLock?.();
+    };
+  }
+
+  win() {
+    if (this.state !== 'playing') return;
+    const level = this.level, time = this.time, touches = this.touches, starsCount = starsFor(level, time, touches);
+    const prev = this.save.best[level.id];
+    const record = !prev || starsCount > prev.stars || (starsCount === prev.stars && time < prev.time);
+    if (record) { this.save.best[level.id] = { stars: starsCount, time: +time.toFixed(2), touches }; storeSave(this.save); }
+    this.state = 'ending'; this.endTimer = 0.7; this.result = 'won';
+    this.audio.sirenStop(); this.stage.setAlarm(false); this.alarmState = null;
+    this.audio.win();
+    this.endAction = () => {
+      this.state = 'won';
+      this.ui.showWin({ level, time, touches, starsCount, best: this.save.best[level.id], record: record && !!prev, hasNext: this.levelIndex < LEVELS.length - 1 });
+      document.exitPointerLock?.();
+    };
+  }
+
+  _glassContact(wall, impact) {
+    if (this.box.broken) return;
+    if (this.time - this.lastGlassContact > GLASS.touchCooldown) {
+      if (this.state === 'playing') this.touches++;
+      this.audio.glassTap(clamp(impact / 1.4, 0.08, 1));
+    }
+    this.lastGlassContact = this.time;
+    if (impact >= this.box.hitSpeed && this.time - this.lastHit > 0.3) {
+      this.lastHit = this.time;
+      const broken = this.box.hit(wall);
+      this.audio.glassCrack();
+      if (broken) {
+        this.audio.glassBreak();
+        this._refreshStatics();
+        this.fail('Стекло разбито');
+      }
+    }
+  }
+
+  _onBarCollide(e) {
+    const v = Math.abs(e.contact.getImpactVelocityAlongNormal()), kind = e.body.userData?.kind;
+    if (kind === 'glass') this._glassContact(e.body.userData.wall, v >= GLASS.barHitSpeed ? Math.max(v, this.box.hitSpeed) : Math.min(v, this.box.hitSpeed * 0.9));
+    else if (kind !== 'hand' && v > 0.3) this.audio.thud(clamp(v / 2.5, 0, 1));
+  }
+
+  // --- ввод -----------------------------------------------------------------
+  _requestLock() {
+    const c = this.stage.renderer.domElement;
+    try { const p = c.requestPointerLock?.(); p?.catch?.(() => {}); } catch { /* нет жеста пользователя — мышь захватится по клику */ }
+  }
+
+  _bindInput() {
+    const canvas = this.stage.renderer.domElement;
+    const locked = () => document.pointerLockElement === canvas;
+    canvas.addEventListener('mousedown', (e) => {
+      this.audio.init();
+      if (this.state !== 'playing') return;
+      if (!locked()) this._requestLock();
+      if (e.button === 0) this.hand.setGrip(true);
+      if (e.button === 2) this.rmb = true;
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) this.hand.setGrip(false);
+      if (e.button === 2) this.rmb = false;
+    });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    window.addEventListener('mousemove', (e) => {
+      if (this.state !== 'playing' || !locked()) return;
+      const dx = e.movementX || 0, dy = e.movementY || 0;
+      if (this.rmb) this.hand.rotate(-dy * HAND.rotSens, -dx * HAND.rotSens);
+      else this.hand.moveTarget(dx * HAND.mouseSens, -dy * HAND.mouseSens, 0);
+    });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (this.state === 'playing') this.hand.moveTarget(0, 0, Math.sign(e.deltaY) * HAND.wheelStep);
+    }, { passive: false });
+    document.addEventListener('pointerlockchange', () => {
+      if (locked()) this.hadLock = true;
+      else if (this.hadLock && this.state === 'playing') this.pause(); // Esc снимает захват мыши → пауза
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      this.keys.add(e.code);
+      if (e.code === 'Escape') { if (this.state === 'playing') this.pause(); else if (this.state === 'paused') this.resume(); }
+      if (this.state !== 'playing') return;
+      if (e.code === 'KeyR') this.startLevel(this.levelIndex);
+      if (e.code === 'KeyC' && !this.stage.toggleSide()) this.toast('Вид сбоку закончился');
+    });
+    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('blur', () => { this.keys.clear(); this.rmb = false; this.hand.setGrip(false); });
+  }
+
+  _applyKeys(dt) {
+    const k = this.keys;
+    if (k.has('KeyW')) this.hand.moveTarget(0, 0, -HAND.keySpeed * dt);
+    if (k.has('KeyS')) this.hand.moveTarget(0, 0, HAND.keySpeed * dt);
+    if (k.has('KeyQ')) this.hand.rotate(0, 0, HAND.yawSpeed * dt);
+    if (k.has('KeyE')) this.hand.rotate(0, 0, -HAND.yawSpeed * dt);
+  }
+
+  // --- симуляция --------------------------------------------------------------
+  _fixedStep(dt) {
+    const playing = this.state === 'playing';
+    if (playing) {
+      this.time += dt;
+      if (this.autopilot) { const r = this.autopilot.next(); if (r.done) this.autopilot = null; } else this._applyKeys(dt);
+    }
+    this.hud.meter = null;
+    this.hand.step(dt, this.bar);
+    this.world.step(dt);
+    this.bar.postStep();
+
+    for (const ev of this.hand.events) {
+      if (ev.type === 'contact') {
+        if (ev.kind === 'glass') this._glassContact(ev.wall, ev.impact);
+        else if (ev.byBar && ev.impact > 0.35) this.audio.thud(clamp(ev.impact / 2, 0, 1));
+      } else if (ev.type === 'grab') this.audio.grab();
+      else if (ev.type === 'release' && ev.reason === 'slip') this.toast('Выскользнул!');
+    }
+    this.hand.events.length = 0;
+    if (!playing) return;
+
+    const ctx = { game: this, hand: this.hand, bar: this.bar, audio: this.audio, time: this.time };
+    for (const t of this.traps) t.step(dt, ctx);
+
+    if (this.alarmState) {
+      this.alarmState.left -= dt;
+      if (this.alarmState.left <= 0) return this.fail('Сработала сигнализация');
+    }
+    if (this.level.timeLimit && this.time > this.level.timeLimit) return this.fail('Время вышло');
+
+    // победа: слиток лежит в «сейфе» и рука его отпустила
+    const p = this.bar.body.position, s = this.level.safe;
+    const d = Math.hypot(p.x - s.pos[0], p.z - s.pos[1]), inZone = d < s.radius - 0.02 && p.y < WORLD.tableY + 0.14 && p.y > WORLD.tableY;
+    this.safePulse = inZone ? 1 : 0;
+    if (inZone && !this.hand.holding && this.bar.speed() < 0.08) { this.winTimer += dt; if (this.winTimer > 0.35) this.win(); } else this.winTimer = 0;
+    if (p.y < WORLD.tableY - 0.2) this.fail('Слиток упал со стола');
+  }
+
+  _frame(now) {
+    requestAnimationFrame((t) => this._frame(t));
+    const dt = Math.min(0.1, (now - this._last) / 1000);
+    this._last = now; this.clock += dt;
+    this._trackFps(dt);
+
+    if (this.state === 'playing' || this.state === 'ending') {
+      this.acc += dt * this.timeScale;
+      let steps = 0;
+      const maxSteps = PHYS.maxStepsPerFrame * Math.max(1, this.timeScale);
+      while (this.acc >= PHYS.step && steps < maxSteps) { this._fixedStep(PHYS.step); this.acc -= PHYS.step; steps++; }
+      if (steps === maxSteps) this.acc = 0;
+      if (this.state === 'ending') { this.endTimer -= dt; if (this.endTimer <= 0) { const fn = this.endAction; this.endAction = null; fn?.(); } }
+    }
+
+    const t = this.clock;
+    this.hand.updateVisual(t);
+    this.bar.sync();
+    for (const tr of this.traps) tr.update(t);
+    this.box.update(dt);
+    if (this.state !== 'playing' && !this.traps.some((x) => x.def.type === 'hot')) this.bar.setGlow(0);
+    else if (!this.traps.some((x) => x.def.type === 'hot')) this.bar.setGlow(this.hand.grabReady ? 0.12 + 0.06 * Math.sin(t * 10) : 0, 0xffb040);
+    this.stage.update(dt, t, this.hand.pos, this.safePulse);
+    this.stage.render();
+
+    if (this.state === 'playing' || this.state === 'ending') {
+      this.ui.update(dt, {
+        time: this.time, timeLimit: this.level.timeLimit, touches: this.touches, damage: this.box.damage, maxHealth: this.box.maxHealth,
+        camUses: this.stage.sideUses, meter: this.hud.meter, alarm: this.alarmState, grabReady: this.hand.grabReady, holding: this.hand.holding,
+        needLock: this.state === 'playing' && !this.autopilot && document.pointerLockElement !== this.stage.renderer.domElement,
+      });
+    }
+  }
+
+  // --- автопилот (проверка проходимости) ---------------------------------------
+  /** Показать прохождение уровня автопилотом в реальном времени. */
+  runAuto(id = this.level.id, timeScale = 1) {
+    this.startLevel(LEVELS.findIndex((l) => l.id === id));
+    this.autopilot = autopilotFor(this); this.timeScale = timeScale; this.result = null;
+  }
+
+  /** Синхронно прогнать уровень автопилотом без отрисовки. Возвращает итог. */
+  autoTest(id, maxSeconds = 120) {
+    this.startLevel(LEVELS.findIndex((l) => l.id === id));
+    this.autopilot = autopilotFor(this); this.result = null;
+    while (this.state === 'playing' && this.time < maxSeconds) this._fixedStep(PHYS.step);
+    const res = { level: id, result: this.result || 'timeout', time: +this.time.toFixed(2), touches: this.touches, damage: this.box.damage, stars: this.result === 'won' ? starsFor(this.level, this.time, this.touches) : 0 };
+    this.autopilot = null; this.endTimer = 0;
+    return res;
+  }
+
+  /** Средний FPS и автоматическое снижение разрешения, если кадры проседают. */
+  _trackFps(dt) {
+    this._fpsAcc += dt; this._fpsFrames++;
+    if (this._fpsAcc < 1) return;
+    this.fps = this._fpsFrames / this._fpsAcc; this._fpsAcc = 0; this._fpsFrames = 0;
+    if (document.hidden) return;
+    this._lowFpsTime = this.fps < 50 ? this._lowFpsTime + 1 : 0;
+    if (this._lowFpsTime >= 3 && this.stage.pixelRatio > 0.75) { this.stage.setPixelRatio(Math.max(0.75, this.stage.pixelRatio - 0.25)); this._lowFpsTime = 0; }
+  }
+}
+
+const game = new Game();
+window.__gg = game; // для отладки и автотестов
+game.init().catch((err) => {
+  console.error(err);
+  document.getElementById('ui').innerHTML = `<div class="screen"><div class="card"><div class="h2">Не удалось запустить игру</div><div class="muted">${String(err.message || err)}</div></div></div>`;
+});

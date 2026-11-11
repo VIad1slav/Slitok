@@ -1,0 +1,18 @@
+// Выгружает параметры уровней и мира из src/*.js в tools/blender/levels.json,
+// чтобы Blender строил стеклянные коробки и комнату по тем же числам, что и игра.
+import { writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { LEVELS } from '../src/levels.js';
+import { BAR, GLASS, WORLD } from '../src/config.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const out = join(here, 'blender', 'levels.json');
+const data = {
+  levels: LEVELS.map((l) => ({ id: l.id, name: l.name, box: l.box })),
+  bar: BAR,
+  glass: { thickness: GLASS.thickness },
+  world: { tableY: WORLD.tableY, tableSize: WORLD.tableSize, room: WORLD.room, spot: WORLD.spot, spotTarget: [-0.05, WORLD.tableY, -0.08] },
+};
+writeFileSync(out, JSON.stringify(data, null, 2));
+console.log(`levels.json: ${data.levels.length} уровней → ${out}`);

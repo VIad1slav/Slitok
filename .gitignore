@@ -1,0 +1,3 @@
+node_modules/
+tools/blender/_cache/
+tools/blender/__pycache__/
