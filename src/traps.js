@@ -195,6 +195,8 @@ class SpinnerTrap {
   /** Автопилоту: сжимать пальцы, когда предмет на платформе почти повернулся длинной стороной вдоль руки. */
   autoReady(phase, ctx) {
     if (phase !== 'grab') return true;
+    const bnd = ctx.item.type.bounds;
+    if (bnd[0] < bnd[2] * 1.5) return true;                   // некруглый только слиток: фишке и кубику всё равно, как повёрнуты
     _a.set(1, 0, 0).applyQuaternion(ctx.item.quaternion());
     const along = ctx.axis === 'x' ? _a.x : _a.z, across = ctx.axis === 'x' ? _a.z : _a.x;
     const mis = Math.abs(Math.atan2(across, Math.abs(along)));
@@ -433,7 +435,37 @@ class ScaleTrap {
   dispose() { this.env.scene.remove(this.mesh); this.mesh.geometry.dispose(); this.mat.dispose(); }
 }
 
-const TYPES = { shutter: ShutterTrap, scale: ScaleTrap, plate: PlateTrap, lasers: LaserTrap, hot: HotTrap, spinner: SpinnerTrap, camera: CameraTrap };
+/**
+ * Перебои со светом. Цикл: горит (on, с) → предупреждение (warn: свет дрожит, треск) → темнота (dark).
+ * Сама темнота уровень не проваливает — она прячет коробку. В темноте видны торцы стекла, круг «сейфа», лазеры
+ * и то, что освещает фонарик на запястье. Если в настройках выбрано «плавное» мигание, свет не дрожит, а плавно гаснет.
+ */
+class BlackoutTrap {
+  constructor(def, env) {
+    this.def = { on: 3.5, warn: 0.5, dark: 2, phase: 0, ...def };
+    this.env = env; this.state = 'on'; this.k = 0;
+    env.stage.setHandLight(true);
+  }
+  step(dt, ctx) {
+    const d = this.def, cycle = d.on + d.warn + d.dark, t = (((ctx.time + d.phase) % cycle) + cycle) % cycle, prev = this.state;
+    if (t < d.on) { this.state = 'on'; this.k = 0; }
+    else if (t < d.on + d.warn) {
+      this.state = 'warn';
+      const u = (t - d.on) / d.warn;
+      // дрожание не чаще 3 раз в секунду; в «плавном» режиме — просто затухание
+      this.k = ctx.game.save.noFlicker ? u * 0.6 : (Math.floor((t - d.on) * 6) % 2 ? 0.75 : 0.2);
+    } else { this.state = 'dark'; this.k = 1; }
+    if (prev !== this.state) {
+      if (this.state === 'warn') { ctx.audio.crackle(); ctx.game.toast(T.darkWarn); }
+      else if (this.state === 'dark') ctx.audio.beep(70, 0.25, 0.35, 0, 'sine');
+      else ctx.audio.click();
+    }
+  }
+  update() { this.env.stage.dark = this.k; }
+  dispose() { this.env.stage.setHandLight(false); }
+}
+
+const TYPES = { blackout: BlackoutTrap, shutter: ShutterTrap, scale: ScaleTrap, plate: PlateTrap, lasers: LaserTrap, hot: HotTrap, spinner: SpinnerTrap, camera: CameraTrap };
 
 export function createTraps(level, env) {
   return (level.traps || []).map((def) => new TYPES[def.type](def, { ...env, item: env.items[def.item ?? 0] }));

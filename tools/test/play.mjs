@@ -27,6 +27,7 @@ const BASELINE = {
   1: 6.48, 2: 4.88, 3: 49.06, 4: 7.18, 5: 9.38, 6: 8.43, 7: 6.5, 8: 5.57,   // MVP; уровни 3 и 8 — после перевода автопилота на общие шаги (было 56.83 и 5.82)
   9: 7.13, 10: 5.44, 11: 52.72, 12: 6.78, 13: 8.17, 14: 5.46, 15: 7.96, 16: 12.27, 17: 14.38, 18: 11.07,
   19: 23.59, 20: 6.83, 21: 4.56, 22: 14.08, 23: 7.71, 24: 20.32, 25: 21.92, 26: 20.5,
+  27: 32.38, 28: 4.88, 29: 30.82, 30: 9.14, 31: 35.91, 32: 9.72,
 };
 const TIME_TOLERANCE = 0.10;
 
@@ -201,6 +202,52 @@ check(bank.shutter.k < 0.9 && bank.shutter.alarm, `заслонка упёрла
 check(bank.closed.handX > bank.closed.wallX && !bank.closed.alarm, `закрытая заслонка не пускает руку (x = ${bank.closed.handX}, стенка ${bank.closed.wallX})`);
 check(bank.scaleCalm && bank.scale.alarm, `весы: слиток на месте — тихо; унесён без груза — «${bank.scale.text}»`);
 check(bank.barrier.inside === 0, `рука не прошла сквозь внутренний барьер (сфер руки внутри барьера: ${bank.barrier.inside}, высота кисти ${bank.barrier.handY} м)`);
+
+// --- казино: темнота, бриллиант, украшения руки
+const casino = await page.evaluate(async () => {
+  const g = window.__gg, S = 1 / 120, out = {}, C = await import('/src/cosmetics.js');
+  const run = (s, fn) => { for (let i = 0; i < s * 120 && g.state === 'playing'; i++) { if (fn) fn(); g._fixedStep(S); } };
+  const settle = () => { for (let i = 0; i < 40; i++) { for (const t of g.traps) t.update(0); g.stage.update(0.016, 0, g.hand.pos, 0); } };
+  // темнота: свет гаснет, фонарик на запястье горит; уровень при этом не проваливается
+  g.startLevelById(28);
+  const bo = g.traps.find((t) => t.def.type === 'blackout');
+  settle(); const litSpot = g.stage.spot.intensity;
+  for (let i = 0; i < 12 * 120 && bo.state !== 'dark'; i++) g._fixedStep(S);
+  settle();
+  out.dark = { spot: +g.stage.spot.intensity.toFixed(2), litSpot: +litSpot.toFixed(1), hand: +g.stage.handLight.intensity.toFixed(2), inScene: !!g.stage.handLight.parent, state: g.state };
+  // предупреждение: с миганием яркость скачет, в «плавном» режиме — только убывает
+  const warnValues = (noFlicker) => { g.save.noFlicker = noFlicker; g.startLevelById(28); const b = g.traps.find((t) => t.def.type === 'blackout'), v = []; for (let i = 0; i < 12 * 120 && b.state !== 'dark'; i++) { g._fixedStep(S); if (b.state === 'warn') v.push(b.k); } return v; };
+  const jumps = (v) => v.filter((x, i) => i && x < v[i - 1] - 0.2).length;
+  out.flicker = { on: jumps(warnValues(false)), smooth: jumps(warnValues(true)) };
+  g.save.noFlicker = false;
+  g.startLevelById(1); settle();
+  out.lightOff = { inScene: !!g.stage.handLight.parent, spot: +g.stage.spot.intensity.toFixed(1) };
+  // бриллиант: выскальзывает на скорости, которую слиток выдерживает, и выпадает от удара о стекло
+  g.startLevelById(30);
+  const h = g.hand, d = g.items[0];
+  const grab = () => { const p = d.position(); run(2.5, () => h.target.set(p.x + 0.3, p.y + 0.045, p.z)); run(1.5, () => h.target.set(p.x, p.y + 0.045, p.z)); run(0.5, () => h.target.set(p.x, p.y + 0.02, p.z)); h.setGrip(true); run(0.5); return h.holding; };
+  out.diamond = { held: grab() };
+  run(0.6, () => h.target.set(h.pos.x + 0.11, h.pos.y, h.pos.z));          // рывок наружу
+  out.diamond.slipped = !h.holding; out.diamond.state = g.state;
+  // украшения: кольцо висит на кости пальца, часы — на предплечье; обычная рука не перекрашивает украшение
+  h.setAccessory(C.cosmeticById('ring'), g.models);
+  out.ring = { bone: h.accessory?.parent?.name, glb: !!g.models.ring };
+  h.setAccessory(C.cosmeticById('watch'), g.models);
+  out.watch = { bone: h.accessory?.parent?.name };
+  h.setSkin(C.cosmeticById('glove'));
+  let recolored = 0; h.accessory.traverse((o) => { if (o.isMesh && o.material === g.M.glove) recolored++; });
+  out.watch.recolored = recolored;
+  h.setAccessory(null); h.setSkin(C.cosmeticById(g.save.skin));
+  out.unlock = { at10: C.unlockedCosmetics('hand', 10).map((c) => c.id), at48: C.unlockedCosmetics('accessory', 48).map((c) => c.id) };
+  g.toMenu();
+  return out;
+});
+check(casino.dark.spot < casino.dark.litSpot * 0.05 && casino.dark.hand > 0.3 && casino.dark.inScene && casino.dark.state === 'playing', `темнота: прожектор ${casino.dark.litSpot} → ${casino.dark.spot}, фонарик на запястье ${casino.dark.hand}, уровень продолжается`);
+check(casino.flicker.on >= 1 && casino.flicker.smooth === 0, `мигание перед темнотой: обычный режим — скачков яркости ${casino.flicker.on}, «плавный» — ${casino.flicker.smooth}`);
+check(!casino.lightOff.inScene && casino.lightOff.spot > 5, 'на уровне без темноты фонарика в сцене нет, свет обычный');
+check(casino.diamond.held && casino.diamond.slipped && casino.diamond.state === 'playing', `бриллиант: взят ${casino.diamond.held ? 'да' : 'нет'}, от рывка выскользнул ${casino.diamond.slipped ? 'да' : 'нет'}`);
+check(casino.ring.bone === 'ring_01' && casino.watch.bone === 'forearm' && casino.watch.recolored === 0 && casino.ring.glb, `украшения: кольцо на кости ${casino.ring.bone}, часы на ${casino.watch.bone}, смена руки их не перекрашивает`);
+check(casino.unlock.at10.join() === 'skin,glove,glove_red' && casino.unlock.at48.join() === 'ring,watch', `косметика по звёздам: при 10 — ${casino.unlock.at10.join(', ')}; украшения при 48 — ${casino.unlock.at48.join(', ')}`);
 
 // --- общая модель добычи
 const loot = await page.evaluate(async () => {

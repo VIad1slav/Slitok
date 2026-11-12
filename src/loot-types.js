@@ -15,6 +15,7 @@
 //   slipSpeed   — если задано: скорость кисти, при которой предмет выскальзывает (иначе берётся из уровня / HAND)
 //   model       — имя GLB в assets/models (без расширения); нет файла — рисуется запасная форма из примитивов
 //   material    — имя материала из src/textures.js
+//   dropImpact  — если задано: удар руки с предметом о стекло быстрее этого (м/с) выбивает предмет из пальцев
 //   topScale    — только для слитка: сужение верхней грани (запасная геометрия и Blender)
 //   fragile     — хрупкий предмет: { crackSpeed, breakSpeed, cracks } — удар быстрее crackSpeed (м/с) оставляет трещину,
 //                 удар быстрее breakSpeed или трещина номер cracks разбивают его; failBreak — причина провала
@@ -87,6 +88,44 @@ export const LOOT = {
     friction: 0.7,
     model: 'coins',
     material: 'brass',
+  },
+  // Фишки казино: стопка из четырёх, ⌀4,4 см, высота 2 см.
+  chips: {
+    name: 'Фишки',
+    failFall: 'Фишки упали со стола',
+    bounds: [0.044, 0.02, 0.044],
+    shapes: [{ type: 'cylinder', radius: 0.022, height: 0.02 }],
+    held: [[0, 0, 0, 0.022]],
+    mass: 0.1,
+    friction: 0.7,
+    model: 'chips',
+    material: 'chips',
+  },
+  // Игральный кубик 3,5 см.
+  dice: {
+    name: 'Кубик',
+    failFall: 'Кубик упал со стола',
+    bounds: [0.035, 0.035, 0.035],
+    shapes: [{ type: 'box', half: [0.0175, 0.0175, 0.0175] }],
+    held: [[0, 0, 0, 0.02]],
+    mass: 0.08,
+    friction: 0.6,
+    model: 'dice',
+    material: 'dice',
+  },
+  // Бриллиант: крошечный и скользкий. Выскальзывает уже на небольшой скорости, выпадает от удара руки о стекло.
+  diamond: {
+    name: 'Бриллиант',
+    failFall: 'Бриллиант упал со стола',
+    bounds: [0.03, 0.022, 0.03],
+    shapes: [{ type: 'box', half: [0.014, 0.011, 0.014] }],
+    held: [[0, 0, 0, 0.016]],
+    mass: 0.05,
+    friction: 0.5,
+    slipSpeed: 0.45,
+    dropImpact: 0.25,
+    model: 'diamond',
+    material: 'diamond',
   },
   // Груз для подмены на весах: стальной брусок. В сейф не идёт (role: 'prop').
   weight: {

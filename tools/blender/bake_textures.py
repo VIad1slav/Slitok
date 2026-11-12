@@ -314,6 +314,44 @@ def mat_crown(nt):
     return dict(color=col, rough=rough, metal=metal, normal=nt.bump(height, strength=0.4, distance=0.0003))
 
 
+def mat_chips(nt):
+    """Фишки: цвет чередуется по высоте стопки, белые вставки по ободу, кольцо на верхней фишке."""
+    P = nt.coords("Object")
+    px, py, pz = nt.sep(P)
+    _, _, nz = nt.sep(nt.coords("Normal"))
+    n, h = M.CHIP["count"], M.CHIP["height"]
+    level = nt.math("DIVIDE", nt.add(pz, h / 2), h / n)                 # 0..n — номер фишки снизу
+    odd = nt.math("FLOOR", nt.math("MODULO", level, 2.0))               # чётные красные, нечётные тёмные
+    gap = nt.sub(1.0, nt.smoothstep(nt.math("ABSOLUTE", nt.sub(nt.math("FRACT", level), 0.5)), 0.42, 0.5))
+    ang = nt.math("ARCTAN2", py, px)
+    side = nt.sub(1.0, nt.smoothstep(nt.math("ABSOLUTE", nz), 0.3, 0.6))
+    inserts = nt.mul(nt.smoothstep(nt.math("SINE", nt.add(nt.mul(ang, 6.0), nt.mul(odd, 0.5))), 0.55, 0.7), side)
+    top = nt.smoothstep(nz, 0.8, 0.95)
+    r = nt.math("SQRT", nt.add(nt.mul(px, px), nt.mul(py, py)))
+    ring = nt.mul(nt.mul(nt.smoothstep(r, 0.0125, 0.0135), nt.sub(1.0, nt.smoothstep(r, 0.0165, 0.0175))), top)
+    dots = nt.mul(nt.mul(nt.smoothstep(nt.math("SINE", nt.mul(ang, 8.0)), 0.6, 0.8), nt.mul(nt.smoothstep(r, 0.018, 0.019), top)), 1.0)
+    col = nt.mix(odd, (0.45, 0.012, 0.016, 1), (0.02, 0.02, 0.026, 1))
+    col = nt.mix(nt.maxf(nt.maxf(inserts, ring), dots), col, (0.82, 0.8, 0.74, 1))
+    col = nt.mix(nt.mul(gap, nt.mul(side, 0.8)), col, (0.006, 0.006, 0.006, 1))
+    rough = nt.sat(nt.add(0.32, nt.mul(nt.noise(P, 300, 2, 0.5), 0.12)))
+    height = nt.sub(nt.mul(ring, 0.5), nt.mul(gap, side))
+    return dict(color=col, rough=rough, metal=0.0, normal=nt.bump(height, strength=0.4, distance=0.0003))
+
+
+def mat_dice(nt):
+    """Кубик: слоновая кость, чёрные вдавленные точки."""
+    P = nt.coords("Object")
+    pips = None
+    for c in M.dice_pips():
+        m = nt.sub(1.0, nt.smoothstep(nt.vmath("DISTANCE", P, c), 0.0031, 0.0038))
+        pips = m if pips is None else nt.maxf(pips, m)
+    tone = nt.noise(P, 60, 3, 0.5)
+    col = nt.mix(tone, (0.78, 0.76, 0.68, 1), (0.86, 0.85, 0.79, 1))
+    col = nt.mix(pips, col, (0.012, 0.012, 0.014, 1))
+    rough = nt.mixf(pips, nt.add(0.22, nt.mul(tone, 0.08)), 0.45)
+    return dict(color=col, rough=rough, metal=0.0, normal=nt.bump(nt.mul(pips, -1.0), strength=0.5, distance=0.0005))
+
+
 # ---------------------------------------------------------------------------
 # Бесшовные материалы окружения (UV-квадрат намотан на 4D-тор)
 # ---------------------------------------------------------------------------
@@ -402,13 +440,14 @@ def mat_tiles(nt):
     return dict(color=col, rough=rough, metal=0.0, normal=nt.bump(height, strength=0.7, distance=0.0035))
 
 
-def mat_velvet(nt):
+def mat_velvet(nt, dark=(0.16, 0.008, 0.016, 1), light=(0.40, 0.024, 0.042, 1), fibre_col=(0.55, 0.05, 0.07, 1)):
+    """Бархат; с зелёными цветами — сукно стола казино."""
     vec, w = nt.torus(5.0, 5.0)
     patch = nt.noise(vec, 1.0, 3, 0.55, w=w)
     vf, wf = nt.torus(420.0, 420.0)
     fibre = nt.noise(vf, 1.0, 2, 0.6, w=wf)
-    col = nt.mix(patch, (0.16, 0.008, 0.016, 1), (0.40, 0.024, 0.042, 1))
-    col = nt.mix(nt.mul(fibre, 0.35), col, (0.55, 0.05, 0.07, 1))
+    col = nt.mix(patch, dark, light)
+    col = nt.mix(nt.mul(fibre, 0.35), col, fibre_col)
     rough = nt.sat(nt.add(0.86, nt.mul(fibre, 0.12)))
     return dict(color=col, rough=rough, metal=0.0, normal=nt.bump(fibre, strength=0.5, distance=0.0008))
 
@@ -527,7 +566,17 @@ def bake_all(only=None):
         C.bake_pbr(crown, nt, mat_crown(nt), "crown", ENV)
         crown.hide_render = True
 
+    for key, build, fn in (("chips", M.build_chips, mat_chips), ("dice", M.build_dice, mat_dice)):
+        if want(key):
+            obj = build()
+            nt = assign(obj, key)
+            C.bake_pbr(obj, nt, fn(nt), key, 512)
+            obj.hide_render = True
+
     plane = unit_plane("swatch")
+    if want("felt_green"):
+        nt = assign(plane, "felt_green")
+        C.bake_pbr(plane, nt, mat_velvet(nt, dark=(0.006, 0.07, 0.03, 1), light=(0.012, 0.16, 0.07, 1), fibre_col=(0.03, 0.24, 0.11, 1)), "felt_green", ENV, ao=False)
     for key, fn in (("wood_table", mat_wood), ("wall_concrete", mat_concrete), ("floor_tiles", mat_tiles), ("velvet_red", mat_velvet)):
         if want(key):
             nt = assign(plane, key)
@@ -585,7 +634,8 @@ def previews():
         C.render_preview("tex_gold_bar", (0.13, -0.21, 0.2), (0.0, 0, 0), lens=75, floor=-data["bar"]["size"][1] / 2, key=8)
         C.render_preview("tex_gold_bar_top", (0.0, -0.06, 0.26), (0.0, 0, 0), lens=70, floor=-data["bar"]["size"][1] / 2, key=6)
 
-    for name, build, cam, floor in (("vase", M.build_vase, (0.15, -0.25, 0.1), -M.VASE_HEIGHT / 2), ("crown", M.build_crown, (0.16, -0.24, 0.16), -0.025)):
+    for name, build, cam, floor in (("vase", M.build_vase, (0.15, -0.25, 0.1), -M.VASE_HEIGHT / 2), ("crown", M.build_crown, (0.16, -0.24, 0.16), -0.025),
+                                    ("chips", M.build_chips, (0.05, -0.08, 0.06), -0.01), ("dice", M.build_dice, (0.06, -0.08, 0.06), -0.0175)):
         if not have(f"{name}_albedo.png"):
             continue
         C.reset_scene()

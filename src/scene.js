@@ -93,6 +93,8 @@ export class Stage {
       const n = (o.material?.name || '').toLowerCase();
       if (n.includes('tile')) return M.tiles;
       if (n.includes('wood')) return M.wood;
+      if (n.includes('neon_pink')) return M.neonPink;
+      if (n.includes('neon_green')) return M.neonGreen;
       if (n.includes('glow')) return M.lampGlow;
       if (n.includes('steel')) return M.steel;
       if (n.includes('metal')) return M.metal;
@@ -168,6 +170,9 @@ export class Stage {
     cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), spot.target.position.clone().sub(spot.position).normalize());
     cone.renderOrder = 6;
     scene.add(cone);
+    this.cone = cone;
+    // фонарик на запястье: включается только на уровнях с темнотой (см. setHandLight)
+    this.handLight = new THREE.PointLight(0xfff0d8, 0, 0.7, 1.4);
     this.coneAxis = spot.target.position.clone().sub(spot.position).normalize();
     this.coneRadius = r; this.coneHeight = h;
   }
@@ -213,7 +218,7 @@ export class Stage {
     this.themeKey = JSON.stringify(t);
     this.spot.color.set(t.spotColor); this.spotBase = t.spotIntensity;
     this.fillSky = new THREE.Color(t.fillSky); this.fill.groundColor.set(t.fillGround); this.fillBase = t.fillIntensity;
-    this.rim.color.set(t.rimColor); this.rim.intensity = t.rimIntensity;
+    this.rim.color.set(t.rimColor); this.rimBase = t.rimIntensity;
     this.scene.fog.color.set(t.fog);
     for (const k of ['concrete', 'tiles', 'wood']) this.M[k].color.setRGB(...tint[k]);
     const tableMat = this.M[t.table] || this.M.wood;
@@ -229,7 +234,7 @@ export class Stage {
     this.sideLook.set(bx, WORLD.tableY + h * 0.45, bz);
     this.sidePos.set(bx + o[0], WORLD.tableY + h * 0.5 + o[1], bz + o[2]);
     this.sideBlend = this.sideTarget = 0; this.sideUses = WORLD.sideCam.uses;
-    this.watch = 0; this.watchK = 0;
+    this.watch = 0; this.watchK = 0; this.dark = 0; this.darkK = 0;
     this.setAlarm(false);
   }
 
@@ -240,6 +245,12 @@ export class Stage {
       this.sideUses--; this.sideTarget = 1;
     } else this.sideTarget = 0;
     return true;
+  }
+
+  /** Фонарик на запястье есть в сцене только на уровнях с темнотой: лишний источник света на остальных не нужен. */
+  setHandLight(on) {
+    if (on) this.scene.add(this.handLight); else this.scene.remove(this.handLight);
+    if (!on) this.dark = this.darkK = 0;
   }
 
   /** Короткая вспышка «сейфа», когда в него засчитан предмет. */
@@ -290,6 +301,14 @@ export class Stage {
     this.watchK += ((this.watch || 0) - this.watchK) * (1 - Math.exp(-10 * dt));
     this.fill.color.copy(this.fillSky).lerp(_red, this.watchK * 0.85);
     this.fill.intensity = this.fillBase * (1 + this.watchK * 2.2);
+    // темнота (значение dark 0..1 ставит ловушка): гаснут прожектор, контровой и почти весь заполняющий свет,
+    // остаются торцы стекла, круг «сейфа», лазеры и фонарик на запястье
+    this.darkK += ((this.dark || 0) - this.darkK) * (1 - Math.exp(-30 * dt));
+    const lit = 1 - this.darkK;
+    this.spot.intensity *= lit; this.rim.intensity = this.rimBase * lit; this.fill.intensity *= 0.1 + 0.9 * lit;
+    this.cone.material.opacity = 0.013 * lit; this.dust.material.opacity = 0.38 * lit;
+    this.handLight.intensity = this.darkK * 0.75;
+    this.handLight.position.set(handPos.x, handPos.y + 0.17, handPos.z + 0.06);   // чуть выше и позади кисти, иначе рука пересвечена
   }
 
   render() { this.composer.render(); }

@@ -21,7 +21,11 @@ export const HEISTS = [
     // нейтральный белый свет, сталь: дверь хранилища, ячейки, стальной стол
     theme: { spotColor: 0xf4f6ff, fillSky: 0x7088a8, fillIntensity: 0.42, rimColor: 0xa8c0ff, rimIntensity: 2.5, table: 'steelTable', set: 'bank' },
   },
-  { id: 'casino', name: 'Казино', tagline: 'Карусель, темнота, скользкая добыча', unlockStars: 43, levels: [6, 8] },
+  {
+    id: 'casino', name: 'Казино', tagline: 'Карусель, темнота, скользкая добыча', unlockStars: 43, levels: [27, 6, 28, 8, 29, 30, 31, 32],
+    // пурпур и изумруд, неон, зелёное сукно
+    theme: { spotColor: 0xffe0f4, fillSky: 0x1f9a70, fillGround: 0x14061a, fillIntensity: 0.5, rimColor: 0xff46c0, rimIntensity: 3.5, fog: 0x08040c, tint: { concrete: [0.75, 0.55, 1.0], tiles: [0.9, 0.8, 1.1] }, table: 'felt', set: 'casino' },
+  },
   { id: 'boss', name: 'Сейф босса', tagline: 'Всё вместе', unlockStars: 62, levels: [] },
 ];
 

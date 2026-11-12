@@ -44,6 +44,7 @@ class Game {
       next: () => { const n = nextAfter(this.level.id, this.save); if (n && !n.locked) this.startLevelById(n.level.id); else this.toMenu(); },
       menu: () => this.toMenu(),
       skin: (id) => this.hand.setSkin(cosmeticById(id)),
+      accessory: (id) => this.hand.setAccessory(id ? cosmeticById(id) : null, this.models),
       volume: (v) => this.audio.setVolume(v),
     }, this.save);
     this.ui.show('loading');
@@ -58,6 +59,7 @@ class Game {
     this._initPhysics();
     this.hand = new Hand({ scene: this.stage.scene, world: this.world, M: this.M, glbScene: models.hand });
     this.hand.setSkin(cosmeticById(this.save.skin));
+    if (this.save.accessory) this.hand.setAccessory(cosmeticById(this.save.accessory), models);
     this._bindInput();
 
     this._loadLevel(LEVELS[0]);
@@ -300,7 +302,12 @@ class Game {
 
     for (const ev of this.hand.events) {
       if (ev.type === 'contact') {
-        if (ev.kind === 'glass') this._glassContact(ev.wall, ev.impact);
+        if (ev.kind === 'glass') {
+          this._glassContact(ev.wall, ev.impact);
+          // скользкая добыча (бриллиант) выпадает из пальцев от удара руки о стекло
+          const drop = this.hand.item?.type.dropImpact;
+          if (drop && ev.impact >= drop) this.hand.release('slip');
+        }
         else if (ev.byBar && ev.impact > 0.35) this.audio.thud(clamp(ev.impact / 2, 0, 1));
         if (ev.byBar && this.hand.item) this._fragileHit(this.hand.item, ev.impact);   // хрупкий предмет в руке ударился о стекло или стол
       } else if (ev.type === 'grab') this.audio.grab();
@@ -311,6 +318,8 @@ class Game {
 
     const ctx = { game: this, hand: this.hand, items: this.items, audio: this.audio, time: this.time };
     for (const t of this.traps) t.step(dt, ctx);
+    // полоска «хват» для скользкой добычи: насколько скорость кисти близка к той, на которой предмет выскользнет
+    if (!this.hud.meter && this.hand.item?.type.slipSpeed) this.hud.meter = { label: T.gripMeter, value: this.hand.vel.length() / this.hand.slipSpeed };
 
     if (this.alarmState) {
       this.alarmState.left -= dt;

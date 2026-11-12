@@ -80,6 +80,8 @@ const along = (p, entry, d, y) => (entry.vec ? [p.x + entry.vec[0] * d, y, p.z +
 function* waitTraps(g, phase, item, entry, timeout = 30) {
   const ctx = { game: g, time: 0, item, axis: entry.axis };
   yield* until(() => { ctx.time = g.time; return g.traps.every((t) => !t.autoReady || t.autoReady(phase, ctx)); }, timeout);
+  // движущийся предмет (на карусели) — дождаться, пока он окажется под рукой
+  if (phase === 'grab') yield* until(() => g.hand.grabItem === item || g.hand.holding, 16);
 }
 
 // ---------------------------------------------------------------------------
@@ -350,6 +352,11 @@ const AUTO = {
       yield* diveDrop(g, bar, [sx, WORLD.tableY, sz], { settle: 1.2, stay: true, outside: true });
     },
   },
+  28: { speed: 0.6 },                                    // перебои со светом (автопилот видит и в темноте)
+  29: { speed: 0.5, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.035, gripSettle: 0.35 },   // кости на карусели
+  30: { speed: 0.3, deliverSpeed: 0.3 },                 // бриллиант: медленно, иначе выскользнет
+  31: { speed: 0.5, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.035, gripSettle: 0.35 },   // фишки на карусели в темноте
+  32: { speed: 0.3, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.03, gripSettle: 0.35, deliverSpeed: 0.3 },   // бриллиант на карусели
   // Карусель: висеть над платформой и сжать пальцы, когда слиток смотрит торцом на отверстие.
   8: { speed: 0.5, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.035, gripSettle: 0.35 },
 };

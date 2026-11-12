@@ -215,7 +215,30 @@ export class Hand {
       mat = this._tinted[cosmetic.id] ??= Object.assign(mat.clone(), { name: cosmetic.id });
       mat.color.set(cosmetic.tint);
     }
-    this.rig.root.traverse((o) => { if (o.isMesh) o.material = mat; });
+    this.rig.root.traverse((o) => { if (o.isMesh && !this._isAccessory(o)) o.material = mat; });
+  }
+
+  _isAccessory(o) { for (let p = o; p; p = p.parent) if (p === this.accessory) return true; return false; }
+
+  /** Надеть украшение (запись вида 'accessory' из src/cosmetics.js) или снять (null). models — загруженные GLB. */
+  setAccessory(cosmetic, models) {
+    if (this.accessory) { this.accessory.parent?.remove(this.accessory); this.accessory = null; }
+    if (!cosmetic) return;
+    const M = this.M, src = models?.[cosmetic.model];
+    let mesh;
+    if (src) {
+      mesh = src.clone(true);
+      mesh.traverse((o) => { if (o.isMesh) { const n = (o.material?.name || '').toLowerCase(); o.material = n.includes('glow') ? M.lampGlow : n.includes('steel') ? M.steel : n.includes('metal') ? M.metal : M.brass; o.castShadow = true; } });
+    } else {
+      const f = cosmetic.fallback, rad = THREE.MathUtils.degToRad;
+      mesh = new THREE.Mesh(new THREE.TorusGeometry(f.radius, f.tube, 10, 28), M[f.material] || M.brass);
+      mesh.position.fromArray(f.pos); mesh.rotation.set(rad(f.rot[0]), rad(f.rot[1]), rad(f.rot[2])); mesh.scale.fromArray(f.scale);
+    }
+    // модель задана в координатах кисти в позе покоя: ставим пальцы в покой, кладём модель в кисть и «перевешиваем» на кость
+    for (const j of this.joints) j.bone.quaternion.copy(j.rest);
+    this.group.add(mesh); this.group.updateMatrixWorld(true);
+    (this.rig.bones[cosmetic.bone] || this.rig.root).attach(mesh);
+    this.accessory = mesh;
   }
 
   reset(level) {

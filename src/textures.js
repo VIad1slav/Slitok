@@ -174,6 +174,21 @@ const PROC = {
     const p = PROC.gold(S);
     return { ...p, normalStrength: 0.8 };
   },
+  felt_green(S) {
+    const n = fbm(S, 6, 6, 5, 73), fine = fbm(S, 96, 96, 2, 74);
+    const albedo = paint(S, (i) => { const v = 0.75 + n[i] * 0.3 + fine[i] * 0.12; return [10 * v, 92 * v, 52 * v]; });
+    return { albedo, rough: fine.map((v) => clamp01(0.88 + v * 0.12)), height: fine, metal: 0, normalStrength: 0.8 };
+  },
+  chips(S) {
+    const n = fbm(S, 8, 8, 3, 75);
+    const albedo = paint(S, (i, x) => (Math.floor((x / S) * 12) % 2 ? [200, 30, 30] : [235, 235, 228]));
+    return { albedo, rough: n.map((v) => clamp01(0.35 + v * 0.1)), height: n, metal: 0, normalStrength: 0.4 };
+  },
+  dice(S) {
+    const n = fbm(S, 8, 8, 3, 76);
+    const albedo = paint(S, (i) => [236 + n[i] * 10, 234 + n[i] * 10, 226 + n[i] * 10]);
+    return { albedo, rough: n.map((v) => clamp01(0.25 + v * 0.1)), height: n, metal: 0, normalStrength: 0.3 };
+  },
   velvet_red(S) {
     const n = fbm(S, 6, 6, 5, 71), fine = fbm(S, 96, 96, 2, 72);
     const albedo = paint(S, (i) => { const v = 0.75 + n[i] * 0.3 + fine[i] * 0.12; return [128 * v, 14 * v, 22 * v]; });
@@ -285,11 +300,12 @@ function pbr(set, extra = {}, physical = false) {
 }
 
 export async function createMaterials() {
-  const [gold, skin, glove, wood, concrete, tiles, velvet, glassMaps, vase, crown, gloveLight] = await Promise.all([
+  const [gold, skin, glove, wood, concrete, tiles, velvet, glassMaps, vase, crown, gloveLight, felt, chips, dice] = await Promise.all([
     loadSet('gold'), loadSet('skin'), loadSet('glove'), loadSet('wood_table', 1), loadSet('wall_concrete', 1),
     loadSet('floor_tiles', 1), loadSet('velvet_red', 1), loadGlassMaps(), loadSet('vase'), loadSet('crown'), tryLoad('glove_light_albedo.png'),
+    loadSet('felt_green', 1), loadSet('chips'), loadSet('dice'),
   ]);
-  const sets = { gold, skin, glove, wood, concrete, tiles, velvet, vase, crown };
+  const sets = { gold, skin, glove, wood, concrete, tiles, velvet, vase, crown, felt, chips, dice };
   const fallbacks = Object.entries(sets).filter(([, s]) => s.fallback).map(([k]) => k);
   if (glassMaps.fallback) fallbacks.push('glass');
 
@@ -328,6 +344,12 @@ export async function createMaterials() {
   M.sleeve = new THREE.MeshStandardMaterial({ color: 0x060607, metalness: 0, roughness: 0.92, envMapIntensity: 0.15 });
   M.lampGlow = new THREE.MeshBasicMaterial({ color: 0xfff1d0, toneMapped: false });
   M.stone = new THREE.MeshStandardMaterial({ color: 0x1b1e25, metalness: 0, roughness: 0.42, envMapIntensity: 0.5 });   // стол музея
+  M.neonPink = new THREE.MeshBasicMaterial({ color: 0xff3fb4, toneMapped: false });
+  M.neonGreen = new THREE.MeshBasicMaterial({ color: 0x35ff9a, toneMapped: false });
+  M.felt = pbr(felt, { envMapIntensity: 0.08 });                         // сукно стола казино
+  M.chips = pbr(chips, { envMapIntensity: 0.5 });
+  M.dice = pbr(dice, { envMapIntensity: 0.5 });
+  M.diamond = new THREE.MeshPhysicalMaterial({ color: 0xeaf6ff, metalness: 0, roughness: 0.02, envMapIntensity: 3.2, iridescence: 1, iridescenceIOR: 1.8, clearcoat: 1, flatShading: true });
   M.steelTable = new THREE.MeshStandardMaterial({ color: 0x3a3e46, metalness: 0.9, roughness: 0.38, envMapIntensity: 0.6 });   // стол банка
   M.brass = new THREE.MeshStandardMaterial({ color: 0xc9a045, metalness: 1, roughness: 0.32, envMapIntensity: 0.9 });
   M.canvas = new THREE.MeshStandardMaterial({ color: 0x1a2230, metalness: 0, roughness: 0.75, envMapIntensity: 0.2 });
@@ -343,6 +365,7 @@ export async function createMaterials() {
   wood.map.repeat.set(1.2, 1.2); wood.normalMap.repeat.set(1.2, 1.2); wood.ormMap.repeat.set(1.2, 1.2);
   for (const s of [concrete, tiles]) for (const k of ['map', 'normalMap', 'ormMap']) s[k].repeat.set(0.5, 0.5);
   for (const k of ['map', 'normalMap', 'ormMap']) velvet[k].repeat.set(6, 6);
+  for (const k of ['map', 'normalMap', 'ormMap']) felt[k].repeat.set(2, 2);
 
   return { M, sets, glassMaps, fallbacks };
 }

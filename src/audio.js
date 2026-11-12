@@ -114,6 +114,8 @@ export class AudioSys {
   bank() { if (this.ctx) { this._tone(1319, 0.14, 0.35, 'triangle'); this._tone(1976, 0.08, 0.5, 'sine', 0.07); } }
   /** Короткий сигнал (камера, заслонка): частота, громкость, длительность, задержка, форма волны. */
   beep(freq, peak = 0.1, dur = 0.1, when = 0, type = 'square') { if (this.ctx) this._tone(freq, peak, dur, type, when); }
+  /** Треск перед тем, как погаснет свет. */
+  crackle() { if (this.ctx) for (let i = 0; i < 5; i++) this._noise(0.25, 0.03, 'bandpass', 2500 + Math.random() * 2500, 2, i * 0.09 + Math.random() * 0.03); }
   uiClick() { if (this.ctx) this._tone(880, 0.08, 0.05, 'triangle'); }
   zap() { if (this.ctx) { this._tone(1800, 0.3, 0.25, 'sawtooth', 0, 200); this._noise(0.3, 0.2, 'bandpass', 4000, 2); } }
   sizzle() { if (this.ctx) this._noise(0.35, 0.5, 'highpass', 4500); }

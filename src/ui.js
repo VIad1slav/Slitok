@@ -9,7 +9,7 @@ import { T } from './strings.js';
 // Рекорды хранятся по id уровня, а что открыто (ограбления, косметика), считается из звёзд и не хранится.
 export const SAVE_VERSION = 2;
 export function migrateSave(raw) {
-  const def = { version: SAVE_VERSION, best: {}, skin: 'skin', accessory: null, volume: 0.7 };
+  const def = { version: SAVE_VERSION, best: {}, skin: 'skin', accessory: null, noFlicker: false, volume: 0.7 };
   if (!raw || typeof raw !== 'object') return def;
   const save = { ...def, ...raw, version: SAVE_VERSION };
   if (!save.best || typeof save.best !== 'object') save.best = {};
@@ -71,7 +71,13 @@ export class UI {
     this.volInput = el('input'); this.volInput.type = 'range'; this.volInput.min = 0; this.volInput.max = 1; this.volInput.step = 0.01;
     this.volInput.addEventListener('input', () => { this.save.volume = +this.volInput.value; this.h.volume(this.save.volume); storeSave(this.save); });
     vol.append(this.volInput);
-    opts.append(this.skinBtn, vol);
+    this.accBtn = this._button('', () => {    // украшение: «нет» и открытые варианты по кругу
+      const list = [null, ...unlockedCosmetics('accessory', totalStars(this.save)).map((c) => c.id)], i = list.indexOf(this.save.accessory);
+      this.save.accessory = list[(i + 1) % list.length];
+      this._syncOptions(); this.h.accessory(this.save.accessory); storeSave(this.save);
+    }, 'ghost');
+    this.flickerBtn = this._button('', () => { this.save.noFlicker = !this.save.noFlicker; this._syncOptions(); storeSave(this.save); }, 'ghost');
+    opts.append(this.skinBtn, this.accBtn, this.flickerBtn, vol);
     card.append(opts);
     menu.append(card);
 
@@ -145,6 +151,9 @@ export class UI {
 
   _syncOptions() {
     this.skinBtn.innerHTML = `${T.handLabel}: <b>${cosmeticById(this.save.skin).name}</b>`;
+    this.accBtn.innerHTML = `${T.accessoryLabel}: <b>${this.save.accessory ? cosmeticById(this.save.accessory).name : T.accessoryNone}</b>`;
+    this.accBtn.hidden = unlockedCosmetics('accessory', totalStars(this.save)).length === 0;   // пока ничего не открыто, кнопки нет
+    this.flickerBtn.innerHTML = `${T.flickerLabel}: <b>${this.save.noFlicker ? T.flickerOff : T.flickerOn}</b>`;
     this.volInput.value = this.save.volume;
   }
 

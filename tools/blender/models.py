@@ -832,3 +832,146 @@ def build_shutter():
         for z in (-0.4, 0.4):
             parts.append(_cyl("rivet", (x, -0.36, z), 0.035, 0.3, "metal", axis="Y", verts=12))
     return _join("shutter", parts)
+
+
+# ---------------------------------------------------------------------------
+# Казино: фишки, кубик, бриллиант, обстановка; украшения руки
+# ---------------------------------------------------------------------------
+def _unwrap(obj, angle=60, margin=0.02):
+    """Одна чистая UV-развёртка для запекания (см. корону: у объединённых примитивов остаются свои UV-слои)."""
+    C.select_only(obj)
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    while obj.data.uv_layers:
+        obj.data.uv_layers.remove(obj.data.uv_layers[0])
+    obj.data.uv_layers.new(name="UVMap")
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(angle), island_margin=margin)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return obj
+
+
+CHIP = dict(radius=0.022, count=4, height=0.02)
+
+
+def build_chips():
+    """Стопка из четырёх фишек ⌀4,4 см, высота 2 см. Центр — в начале координат."""
+    n, h = CHIP["count"], CHIP["height"]
+    parts = []
+    for i in range(n):
+        dx, dy = 0.0008 * math.sin(i * 2.1), 0.0008 * math.cos(i * 1.3)
+        parts.append(_cyl("chip", (dx, dy, -h / 2 + (i + 0.5) * h / n), CHIP["radius"] - 0.0006, h / n - 0.0005, "chips", verts=40, bevel=0.0006))
+    obj = _unwrap(_join("chips", parts))
+    obj.data.materials.clear()
+    obj.data.materials.append(C.get_material("chips", (0.6, 0.05, 0.05, 1), 0.0, 0.4))
+    return obj
+
+
+DICE_SIZE = 0.035
+
+
+def dice_pips():
+    """Точки на гранях кубика: [(x, y, z)] в координатах объекта. Сумма на противоположных гранях — семь."""
+    h, o = DICE_SIZE / 2, 0.0085
+    layouts = {
+        1: [(0, 0)], 2: [(-o, -o), (o, o)], 3: [(-o, -o), (0, 0), (o, o)], 4: [(-o, -o), (o, -o), (-o, o), (o, o)],
+        5: [(-o, -o), (o, -o), (0, 0), (-o, o), (o, o)], 6: [(-o, -o), (o, -o), (-o, 0), (o, 0), (-o, o), (o, o)],
+    }
+    faces = (((0, 0, 1), 1), ((0, 0, -1), 6), ((1, 0, 0), 2), ((-1, 0, 0), 5), ((0, 1, 0), 3), ((0, -1, 0), 4))
+    pips = []
+    for (nx, ny, nz), count in faces:
+        for a, b in layouts[count]:
+            if nz:
+                pips.append((a, b, nz * h))
+            elif nx:
+                pips.append((nx * h, a, b))
+            else:
+                pips.append((a, ny * h, b))
+    return pips
+
+
+def build_dice():
+    """Игральный кубик 3,5 см со скруглёнными рёбрами."""
+    obj = _unwrap(_box("dice", (0, 0, 0), (DICE_SIZE, DICE_SIZE, DICE_SIZE), "dice", bevel=0.004), angle=50)
+    obj.data.materials.clear()
+    obj.data.materials.append(C.get_material("dice", (0.9, 0.9, 0.86, 1), 0.0, 0.3))
+    return obj
+
+
+def build_diamond():
+    """Бриллиант: корона и павильон из восьмигранных усечённых конусов, плоские грани. Высота 2,2 см, ⌀2,8 см."""
+    bpy.ops.mesh.primitive_cone_add(vertices=8, radius1=0.014, radius2=0.008, depth=0.008, location=(0, 0, 0.007))
+    crown = bpy.context.active_object
+    bpy.ops.mesh.primitive_cone_add(vertices=8, radius1=0.005, radius2=0.014, depth=0.014, location=(0, 0, -0.004))
+    pav = bpy.context.active_object
+    for o in (crown, pav):
+        o.data.materials.append(C.get_material("diamond", (0.9, 0.95, 1.0, 1), 0.0, 0.02))
+    return _join("diamond", [crown, pav])
+
+
+def build_set_casino(data):
+    """Обстановка казино: игровые автоматы у дальней стены, неоновые полосы на стенах, светящееся кольцо-вывеска."""
+    rw, rh, rd = data["world"]["room"]
+    yb = rd / 2
+    parts = []
+    for i, x in enumerate((-1.95, -1.15, 1.15, 1.95)):
+        neon = "neon_pink" if i % 2 == 0 else "neon_green"
+        y = yb - 0.32
+        parts.append(_box("slot_body", (x, y, 0.85), (0.6, 0.55, 1.7), "metal", bevel=0.03))
+        parts.append(_box("slot_screen", (x, y - 0.28, 1.12), (0.44, 0.02, 0.36), neon))
+        parts.append(_box("slot_top", (x, y - 0.22, 1.56), (0.5, 0.1, 0.16), "neon_green" if neon == "neon_pink" else "neon_pink"))
+        parts.append(_box("slot_tray", (x, y - 0.32, 0.62), (0.46, 0.14, 0.05), "steel", bevel=0.01))
+        parts.append(_cyl("slot_lever", (x + 0.34, y - 0.1, 1.15), 0.014, 0.42, "steel", verts=12))
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=10, radius=0.04, location=(x + 0.34, y - 0.1, 1.38))
+        knob = bpy.context.active_object
+        C.shade_smooth(knob)
+        knob.data.materials.append(C.get_material("neon_pink"))
+        parts.append(knob)
+    # неоновые полосы на боковых стенах и над автоматами
+    for sx in (-1, 1):
+        for z, neon in ((2.25, "neon_pink"), (2.05, "neon_green")):
+            parts.append(_box("strip", (sx * (rw / 2 - 0.03), 0.3, z), (0.02, 3.6, 0.03), neon))
+    parts.append(_box("strip_back", (0, yb - 0.03, 2.45), (4.4, 0.02, 0.03), "neon_pink"))
+    # кольцо-вывеска в центре дальней стены
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.5, minor_radius=0.022, major_segments=64, minor_segments=10, location=(0, yb - 0.05, 1.55), rotation=(math.radians(90), 0, 0))
+    ring = bpy.context.active_object
+    ring.data.materials.append(C.get_material("neon_green"))
+    parts.append(ring)
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.34, minor_radius=0.016, major_segments=64, minor_segments=10, location=(0, yb - 0.05, 1.55), rotation=(math.radians(90), 0, 0))
+    ring2 = bpy.context.active_object
+    ring2.data.materials.append(C.get_material("neon_pink"))
+    parts.append(ring2)
+    parts.append(_cyl("sign_plate", (0, yb - 0.03, 1.55), 0.62, 0.03, "metal", axis="Y", verts=48))
+    obj = _join("set_casino", parts, uv_scale=1.0)
+    print(f"[set_casino] {sum(len(p.vertices) - 2 for p in obj.data.polygons)} треугольников")
+    return obj
+
+
+def build_ring():
+    """Золотое кольцо на безымянном пальце — в координатах руки в позе покоя (игра прикрепляет его к кости ring_01)."""
+    pts, _ = hand_chains()["ring"]
+    d = (pts[1] - pts[0]).normalized()
+    c = pts[0] + (pts[1] - pts[0]) * 0.45
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.0108, minor_radius=0.0022, major_segments=40, minor_segments=12, location=c, rotation=d.to_track_quat("Z", "Y").to_euler())
+    ring = bpy.context.active_object
+    ring.name = "ring"
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    C.shade_smooth(ring)
+    ring.data.materials.append(C.get_material("brass", (1.0, 0.72, 0.25, 1), 1.0, 0.25))
+    return ring
+
+
+def build_watch():
+    """Часы на запястье — в координатах руки в позе покоя (игра прикрепляет их к кости forearm)."""
+    y = -0.035
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.0285, minor_radius=0.0045, major_segments=48, minor_segments=10, location=(0, y, 0), rotation=(math.radians(90), 0, 0))
+    band = bpy.context.active_object
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+    band.scale = (1.04, 2.4, 0.76)          # эллипс по сечению предплечья, ремешок шире вдоль руки
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    C.shade_smooth(band)
+    band.data.materials.append(C.get_material("metal"))
+    case = _cyl("watch_case", (0, y, 0.0245), 0.0155, 0.008, "steel", verts=32, bevel=0.0015)
+    face = _cyl("watch_face", (0, y, 0.0288), 0.0118, 0.0008, "lamp_glow", verts=32)
+    crown = _cyl("watch_crown", (0.017, y, 0.0245), 0.0022, 0.004, "steel", axis="X", verts=10)
+    return _join("watch", [band, case, face, crown])

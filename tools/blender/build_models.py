@@ -75,6 +75,13 @@ def main():
     for name, build in (("coins", M.build_coins), ("weight", M.build_weight), ("shutter", M.build_shutter)):
         C.reset_scene()
         C.export_glb(os.path.join(C.MODELS, f"{name}.glb"), [build()])
+
+    # --- казино: фишки, кубик, бриллиант, обстановка; украшения руки
+    for name, build in (("chips", M.build_chips), ("dice", M.build_dice), ("diamond", M.build_diamond), ("ring", M.build_ring), ("watch", M.build_watch)):
+        C.reset_scene()
+        C.export_glb(os.path.join(C.MODELS, f"{name}.glb"), [build()])
+    C.reset_scene()
+    C.export_glb(os.path.join(C.MODELS, "set_casino.glb"), [M.build_set_casino(data)])
     print("[models] готово")
 
 
