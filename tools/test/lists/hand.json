@@ -1,0 +1,10 @@
+[
+  { "name": "level_01_start", "level": 1, "start": true, "skin": "skin" },
+  { "name": "level_01", "level": 1, "t": 3.2, "skin": "skin" },
+  { "name": "level_12", "level": 12, "t": 3.4, "skin": "skin" },
+  { "name": "level_30", "level": 30, "t": 4.5, "skin": "skin" },
+  { "name": "level_28_dark", "level": 28, "t": 2.0, "dark": true, "skin": "skin" },
+  { "name": "level_21", "level": 21, "t": 5.0, "skin": "skin" },
+  { "name": "level_33", "level": 33, "t": 4.0, "skin": "skin" },
+  { "name": "level_03_glove", "level": 3, "t": 7.0, "skin": "glove" }
+]

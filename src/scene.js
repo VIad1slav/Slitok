@@ -6,6 +6,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { WORLD } from './config.js';
+import { HAND_LIGHT } from './textures.js';
 
 // Тема по умолчанию (хранилище банка). Тема ограбления из src/heists.js переопределяет любые поля.
 //   spot/fill/rim — цвета и сила света; fog — цвет тумана; tint — множители цвета материалов комнаты [r, g, b];
@@ -26,6 +27,10 @@ export const LIGHT = {
 // Сколько остаётся в полной темноте (ловушка «перебои со светом»): доля отражений окружения на материалах
 // и доля яркости ламп и неона обстановки. Торцы стекла, круг «сейфа», лазеры и индикаторы ловушек не гаснут.
 export const DARK = { env: 0.06, glow: 0.12 };
+
+// Подсветка руки «от камеры» (см. HAND_LIGHT в src/textures.js): fill — мягкий свет, rim — светлая кромка по контуру.
+// darkFill / darkRim — какая доля остаётся в полной темноте: рука видна слабым силуэтом, всё остальное погашено.
+export const HAND_GLOW = { fill: 0.3, rim: 0.22, darkFill: 0.3, darkRim: 0.8 };
 
 function scaleUV(geo, su, sv) {
   const uv = geo.attributes.uv;
@@ -336,6 +341,8 @@ export class Stage {
     this.spot.intensity *= lit; this.rim.intensity = this.rimBase * lit; this.fill.intensity *= 0.1 + 0.9 * lit;
     this.cone.material.opacity = 0.013 * lit; this.dust.material.opacity = 0.38 * lit;
     if (Math.abs(lit - this.litApplied) > 0.004) this._applyDarkness(lit);
+    HAND_LIGHT.fill.value = HAND_GLOW.fill * (HAND_GLOW.darkFill + (1 - HAND_GLOW.darkFill) * lit);
+    HAND_LIGHT.rim.value = HAND_GLOW.rim * (HAND_GLOW.darkRim + (1 - HAND_GLOW.darkRim) * lit);
   }
 
   render() { this.composer.render(); }

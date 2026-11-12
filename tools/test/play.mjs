@@ -11,7 +11,8 @@
 //   3. автопилот проходит все уровни кампании; время не ушло от эталона (BASELINE) больше чем на 10 %;
 //   4. общая модель добычи: уровень с двумя слитками, предметы-цилиндр и шар;
 //   5. физика: рука не проходит сквозь стекло, стекло бьётся, ловушка для обезьян держит;
-//   6. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
+//   6. рука читается в кадре: пальцы отличаются от фона во всех пяти обстановках и в темноте;
+//   7. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
@@ -163,6 +164,7 @@ check(overRu.length === 0, `русский текст помещается в к
   await p2.waitForFunction(() => window.__gg && window.__gg.state === 'menu', null, { timeout: 60000 });
   const d = await p2.evaluate(() => ({ play: document.querySelector('.screen[data-name=menu] .btn.primary').textContent, skin: window.__gg.save.skin, lang: window.__gg.save.lang }));
   check(d.play === 'Play' && d.lang === null, `новый игрок с нерусской системой (de-DE) видит английский: кнопка «${d.play}»`);
+  check(d.skin === 'skin', `у нового игрока рука по умолчанию — светлая кожа («${d.skin}»)`);
   await p2.close();
 }
 
@@ -351,6 +353,44 @@ check(boss.restart.index === 1 && boss.restart.kept && boss.restart.state === 'p
 check(boss.restart0.index === 0 && boss.restart0.time === 0, 'финал: «Ещё раз» на первом этапе начинает уровень заново');
 check(boss.zoneOut.meter === 0 && !boss.zoneOut.alarm && /Камера/.test(boss.zoneIn.result || '') , `пятно камеры: вне пятна движение не замечено, в пятне — ${boss.zoneIn.result}`);
 check(boss.big.held && boss.big.slipped && boss.big.slipSpeed < 1, `большой слиток ${boss.big.size} м: взят, от рывка выскользнул (порог ${boss.big.slipSpeed} м/с)`);
+
+// --- рука читается в кадре. Кадр рисуется дважды — с рукой и без неё — и в точках, где находятся фаланги пальцев,
+// сравнивается цвет. Разница (0..255) показывает, насколько пальцы отличаются от того, что за ними.
+// Порог 12 — примерно «различимо глазом»; без подсветки руки (HAND_GLOW) в темноте выходит около нуля.
+const handSeen = await page.evaluate(async () => {
+  const g = window.__gg, C = await import('/src/cosmetics.js'), SC = await import('/src/scene.js'), S = 1 / 120, out = [];
+  const gl = g.stage.renderer.getContext(), px = new Uint8Array(4), v = g.hand.pos.clone();
+  const sample = () => {
+    g.stage.render();
+    const pts = [];
+    for (const [name, bone] of Object.entries(g.hand.rig.bones)) {
+      if (!/_0[23]$/.test(name)) continue;
+      bone.getWorldPosition(v).project(g.stage.camera);
+      const x = Math.round((v.x * 0.5 + 0.5) * gl.drawingBufferWidth), y = Math.round((v.y * 0.5 + 0.5) * gl.drawingBufferHeight);
+      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); pts.push([px[0], px[1], px[2]]);
+    }
+    return pts;
+  };
+  const diff = () => {
+    const a = sample(); g.hand.group.visible = false; const b = sample(); g.hand.group.visible = true;
+    return a.reduce((sum, c, i) => sum + Math.max(Math.abs(c[0] - b[i][0]), Math.abs(c[1] - b[i][1]), Math.abs(c[2] - b[i][2])), 0) / a.length;
+  };
+  const settle = () => { g.hand.updateVisual(0); for (let i = 0; i < 60; i++) { for (const t of g.traps) t.update(0); g.stage.update(0.016, 0, g.hand.pos, 0); } g.stage.scene.updateMatrixWorld(true); };
+  const cases = [[1, false], [12, false], [21, false], [30, false], [33, false], [28, true], [37, true]];
+  for (const [id, dark] of cases) for (const skin of ['skin', 'glove']) {
+    g.startLevelById(id); g.hand.setSkin(C.cosmeticById(skin));
+    if (dark) { const bo = g.traps.find((t) => t.def.type === 'blackout'); for (let i = 0; i < 20 * 120 && bo.state !== 'dark'; i++) g._fixedStep(S); }
+    settle();
+    const lit = +diff().toFixed(1), keep = { ...SC.HAND_GLOW };
+    SC.HAND_GLOW.fill = 0; SC.HAND_GLOW.rim = 0; settle();
+    const plain = +diff().toFixed(1);
+    Object.assign(SC.HAND_GLOW, keep); settle();
+    out.push({ id, dark, skin, lit, plain });
+  }
+  g.hand.setSkin(C.cosmeticById(g.save.skin)); g.toMenu();
+  return out;
+});
+for (const h of handSeen) check(h.lit >= 12, `рука в кадре, уровень ${h.id}${h.dark ? ' (темнота)' : ''}, ${h.skin === 'skin' ? 'кожа' : 'чёрная перчатка'}: отличие пальцев от фона ${h.lit} из 255 (без подсветки было бы ${h.plain})`);
 
 // --- общая модель добычи
 const loot = await page.evaluate(async () => {

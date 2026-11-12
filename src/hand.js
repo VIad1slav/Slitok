@@ -7,6 +7,7 @@
 //  * Свободный слиток — обычное динамическое тело cannon-es; рука толкает его кинематическими сферами.
 //  * Захват — LockConstraint между кистью и слитком. Пока слиток в руке, он участвует в «сферной»
 //    проверке вместе с кистью: кулак со слитком должен целиком пролезть в отверстие.
+import { litForCamera } from './textures.js';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { HAND, HAND_GEOM as G, HAND_START, WORLD } from './config.js';
@@ -119,6 +120,11 @@ function rigFromGlb(gltfScene, material) {
   return { root, bones, skinned };
 }
 
+// На каком расстоянии от камеры рукав растворяется: ближе первого числа (м) не виден, дальше второго — виден целиком.
+const ARM_NEAR_FADE = [0.3, 0.62];
+// Сколько метров рукава выше локтя рисуется (к концу он растворяется).
+const ARM_VISIBLE = 0.24;
+
 // ---------------------------------------------------------------------------
 export class Hand {
   constructor({ scene, world, M, glbScene }) {
@@ -173,15 +179,19 @@ export class Hand {
     const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.052, 0.13, 20), M.sleeve);
     cuff.geometry.rotateX(Math.PI / 2); cuff.geometry.scale(1, 0.86, 1); cuff.position.set(0, 0, 0.27); cuff.castShadow = true;
     this.group.add(cuff);
-    const upGeo = new THREE.CylinderGeometry(0.04, 0.05, 1, 16, 1, true); upGeo.translate(0, 0.5, 0);
-    // Плечо рисуем коротким и растворяющимся в темноте: целиком оно загораживало бы обзор у самой камеры.
+    // Рукав выше локтя — только картинка (коллайдеры плеча те же, что были). Он короткий и растворяется:
+    // целиком до плеча он закрывал бы круг «сейфа» и треть стола. Рядом с камерой растворяется совсем (nearFade).
+    const upGeo = new THREE.CylinderGeometry(0.044, 0.05, 1, 20, 1, true); upGeo.translate(0, 0.5, 0);
     const fc = document.createElement('canvas'); fc.width = 4; fc.height = 64;
     const fg = fc.getContext('2d'), grad = fg.createLinearGradient(0, 64, 0, 0);
-    grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.3, '#ffffff'); grad.addColorStop(1, '#000000');
+    grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.15, '#ffffff'); grad.addColorStop(1, '#000000');
     fg.fillStyle = grad; fg.fillRect(0, 0, 4, 64);
     const upMat = M.sleeve.clone(); upMat.alphaMap = new THREE.CanvasTexture(fc); upMat.transparent = true;
+    const ballMat = M.sleeve.clone(); ballMat.transparent = true;
+    litForCamera(M.sleeve, { rimScale: 0.3 }); litForCamera(M.skin);
+    litForCamera(upMat, { rimScale: 0.3, nearFade: ARM_NEAR_FADE }); litForCamera(ballMat, { rimScale: 0.3, nearFade: ARM_NEAR_FADE });
     this.upper = new THREE.Mesh(upGeo, upMat); this.upper.renderOrder = 8;
-    this.elbowBall = new THREE.Mesh(new THREE.SphereGeometry(0.054, 16, 12), M.sleeve); this.elbowBall.castShadow = true;
+    this.elbowBall = new THREE.Mesh(new THREE.SphereGeometry(0.05, 20, 14), ballMat); this.elbowBall.renderOrder = 8; this.elbowBall.castShadow = true;
     scene.add(this.upper, this.elbowBall);
   }
 
@@ -215,6 +225,7 @@ export class Hand {
       mat = this._tinted[cosmetic.id] ??= Object.assign(mat.clone(), { name: cosmetic.id });
       mat.color.set(cosmetic.tint);
     }
+    litForCamera(mat);                       // подсветка «от камеры»: пальцы читаются с любой стороны
     this.rig.root.traverse((o) => { if (o.isMesh && !this._isAccessory(o)) o.material = mat; });
   }
 
@@ -561,7 +572,7 @@ export class Hand {
     this.elbowBall.position.copy(_a);
     this.upper.position.copy(_a);
     this.upper.quaternion.setFromUnitVectors(_c.set(0, 1, 0), _b.multiplyScalar(1 / len));
-    this.upper.scale.set(1, Math.min(len, HAND.upperArmVisible), 1);
+    this.upper.scale.set(1, Math.min(len, ARM_VISIBLE), 1);
   }
 }
 

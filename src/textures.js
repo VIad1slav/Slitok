@@ -289,6 +289,42 @@ export async function loadGlassMaps() {
 // ---------------------------------------------------------------------------
 // Материалы
 // ---------------------------------------------------------------------------
+// --- Подсветка руки «от камеры» -------------------------------------------------
+// Игрок смотрит на руку со стороны, куда прожектор не светит: без подсветки рука выглядит тёмной трубой.
+// Это не источник света в сцене (он осветил бы и стол, и стекло), а добавка в шейдере самих материалов руки:
+//   fill — ровный мягкий свет от камеры (сильнее на поверхностях, повёрнутых к игроку);
+//   rim  — светлая кромка по контуру, она отделяет пальцы друг от друга и от фона, даже у чёрной перчатки
+//          (плюс слабая ровная добавка, не зависящая от цвета материала: чёрная перчатка в темноте иначе не видна).
+// Значения задаёт сцена (src/scene.js, HAND_GLOW): в темноте они слабее, но не ноль — пальцы видно всегда.
+// На физику и коллайдеры не влияет.
+export const HAND_LIGHT = { fill: { value: 0.3 }, rim: { value: 0.3 }, rimColor: { value: new THREE.Color(1.0, 0.9, 0.78) } };
+const _handLit = new WeakSet();
+/**
+ * Включить подсветку «от камеры» у материала.
+ * rimScale — доля кромки (у тёмного рукава она слабее, чтобы он не светился призраком);
+ * nearFade — [d0, d1], м: ближе d1 к камере материал начинает растворяться, ближе d0 не виден совсем
+ *            (рукав идёт к плечу игрока мимо самой камеры и не должен закрывать обзор). Материал должен быть transparent.
+ */
+export function litForCamera(mat, { rimScale = 1, nearFade = null } = {}) {
+  if (_handLit.has(mat)) return mat;
+  _handLit.add(mat);
+  const fade = nearFade ? `diffuseColor.a *= smoothstep( ${nearFade[0].toFixed(3)}, ${nearFade[1].toFixed(3)}, length( vViewPosition ) );` : '';
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uHandFill = HAND_LIGHT.fill; shader.uniforms.uHandRim = HAND_LIGHT.rim; shader.uniforms.uHandRimColor = HAND_LIGHT.rimColor;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uHandFill;\nuniform float uHandRim;\nuniform vec3 uHandRimColor;')
+      .replace('#include <opaque_fragment>', `{
+        float hlN = clamp( dot( normalize( normal ), normalize( vViewPosition ) ), 0.0, 1.0 );
+        outgoingLight += diffuseColor.rgb * uHandFill * ( 0.35 + 0.65 * hlN ) + uHandRimColor * uHandRim * ${rimScale.toFixed(3)} * ( 0.12 + pow( 1.0 - hlN, 3.5 ) );
+        ${fade}
+      }
+      #include <opaque_fragment>`);
+  };
+  mat.customProgramCacheKey = () => `handLight:${rimScale}:${nearFade ? nearFade.join('-') : ''}`;
+  mat.needsUpdate = true;
+  return mat;
+}
+
 function pbr(set, extra = {}, physical = false) {
   const Mat = physical ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
   const m = new Mat({
@@ -341,7 +377,7 @@ export async function createMaterials() {
   M.velvet = pbr(velvet, { envMapIntensity: 0.1, sheen: 1, sheenRoughness: 0.4, sheenColor: new THREE.Color(0xff5060) }, true);
   M.metal = new THREE.MeshStandardMaterial({ color: 0x2a2c30, metalness: 0.9, roughness: 0.38, envMapIntensity: 0.6 });
   M.steel = new THREE.MeshStandardMaterial({ color: 0xaab0b8, metalness: 1, roughness: 0.12, envMapIntensity: 1.0 });
-  M.sleeve = new THREE.MeshStandardMaterial({ color: 0x060607, metalness: 0, roughness: 0.92, envMapIntensity: 0.15 });
+  M.sleeve = new THREE.MeshStandardMaterial({ color: 0x15161b, metalness: 0, roughness: 0.92, envMapIntensity: 0.15 });   // рукав куртки: тёмный, но не чёрный — иначе он сливается в «трубу»
   M.lampGlow = new THREE.MeshBasicMaterial({ color: 0xfff1d0, toneMapped: false });
   M.stone = new THREE.MeshStandardMaterial({ color: 0x1b1e25, metalness: 0, roughness: 0.42, envMapIntensity: 0.5 });   // стол музея
   M.neonPink = new THREE.MeshBasicMaterial({ color: 0xff3fb4, toneMapped: false });
