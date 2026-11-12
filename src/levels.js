@@ -9,6 +9,8 @@
 //              Оси стенки: top — u=X, v=Z; front/back — u=X, v=Y; left/right — u=Z, v=Y.
 // loot       — список предметов добычи: [{ type, pos, yaw, mass, friction, role }], типы — в src/loot-types.js.
 //              Старая короткая запись для одного слитка: bar: { pos, yaw, mass, friction }.
+// stages     — многоэтапный уровень: список этапов (см. stageDef ниже); добыча этапа в сейфе — начинается следующий.
+// via        — у предмета добычи: номер отверстия коробки, через которое его достают (по умолчанию 0).
 // blocked    — 'flat': предмет не должен проходить в отверстие плашмя, только ребром (проверяет tools/check_levels.mjs).
 // bar.pos    — [x, y, z] нижней точки слитка относительно центра дна коробки. yaw в градусах
 //              (0 — слиток лежит вдоль X, 90 — вдоль Z).
@@ -476,12 +478,196 @@ export const LEVELS = [
     timeLimit: 120,
     stars: { three: { time: 30, touches: 1 }, two: { time: 60, touches: 3 } },
   },
+  // ------------------------------------------------------------------ Сейф босса
+  {
+    id: 33,
+    name: 'Приёмная',
+    hint: 'Большой слиток весит шесть килограммов. Неси медленно и ровно: полоска «хват» покажет, когда он начнёт выскальзывать.',
+    box: { pos: [-0.2, -0.1], size: [0.58, 0.28, 0.4], holes: [{ wall: 'right', shape: 'rect', size: [0.26, 0.2], offset: [0, -0.01] }] },
+    pedestal: { size: [0.34, 0.03, 0.16], pos: [-0.03, 0] },
+    loot: [{ type: 'bigbar', pos: [-0.03, 0.03, 0] }],
+    hand: { pos: [0.4, 1.06, -0.1], yaw: 90, pitch: 0 },
+    safe: { pos: [0.52, 0.22], radius: 0.18 },
+    stars: { three: { time: 20, touches: 1 }, two: { time: 40, touches: 4 } },
+  },
+  {
+    id: 34,
+    name: 'Сигнализация',
+    hint: 'Заслонка и камера работают в одном ритме: после открытия у тебя около четырёх секунд, потом камера посмотрит. Не успел выйти — жди.',
+    box: { pos: [-0.2, -0.1], size: [0.58, 0.28, 0.4], holes: [{ wall: 'right', shape: 'rect', size: [0.24, 0.17], offset: [0, -0.02] }] },
+    pedestal: { size: [0.32, 0.03, 0.14], pos: [-0.03, 0] },
+    bar: { pos: [-0.03, 0.03, 0], yaw: 0, mass: 1.5, friction: 0.6 },
+    hand: { pos: [0.4, 1.03, -0.1], yaw: 90, pitch: 0 },
+    safe: { pos: [0.52, 0.22], radius: 0.16 },
+    traps: [
+      { type: 'shutter', open: 7, warn: 0.7, closing: 0.5, closed: 2, autoNeed: 6 },
+      { type: 'camera', away: 7.4, warn: 0.8, watch: 2.0, phase: 3, autoNeed: 3.8 },
+    ],
+    stars: { three: { time: 20, touches: 1 }, two: { time: 40, touches: 4 } },
+  },
+  {
+    id: 35,
+    name: 'Тёплый приём',
+    hint: 'Большой слиток раскалён и лежит за барьером. Нырни, вытащи его наружу, положи остыть — и только потом неси в сейф.',
+    box: {
+      pos: [-0.1, -0.12], size: [0.5, 0.42, 0.44],
+      holes: [{ wall: 'front', shape: 'rect', size: [0.34, 0.2], offset: [0, 0.09] }],
+      inner: [{ axis: 'x', at: 0.1, from: -0.25, to: 0.25, height: 0.1 }],
+    },
+    pedestal: null,
+    loot: [{ type: 'bigbar', pos: [0, 0, -0.08], yaw: 0, mass: 4 }],
+    hand: { pos: [-0.1, 1.42, 0.4], yaw: 0, pitch: -40 },
+    safe: { pos: [0.52, 0.2], radius: 0.18 },
+    traps: [{ type: 'hot', holdTime: 4, cooldown: 1.2 }],
+    stars: { three: { time: 35, touches: 2 }, two: { time: 70, touches: 5 } },
+  },
+  {
+    id: 36,
+    name: 'Коллекция',
+    hint: 'Три предмета — три хвата. Вазу бери сверху, корону и бриллиант — через щель спереди. Наклон кисти меняет ПКМ.',
+    box: {
+      pos: [-0.12, -0.12], size: [0.56, 0.34, 0.46],
+      holes: [
+        { wall: 'top', shape: 'rect', size: [0.22, 0.3], offset: [-0.13, 0.03] },
+        { wall: 'front', shape: 'rect', size: [0.22, 0.15], offset: [0.13, -0.075] },
+      ],
+    },
+    pedestal: { size: [0.14, 0.05, 0.14], pos: [-0.13, 0] },
+    loot: [
+      { type: 'vase', pos: [-0.13, 0.05, 0] },
+      { type: 'crown', pos: [0.13, 0, -0.05], via: 1 },
+      { type: 'diamond', pos: [0.13, 0, 0.1], via: 1 },
+    ],
+    hand: { pos: [-0.25, 1.44, 0.0], yaw: 0, pitch: -60 },
+    safe: { pos: [0.52, 0.2], radius: 0.18 },
+    stars: { three: { time: 90, touches: 2 }, two: { time: 175, touches: 5 } },
+  },
+  {
+    id: 37,
+    name: 'Весы босса',
+    hint: 'Подмена на весах — но по бокам лазеры, а свет гаснет. Запомни, где весы, пока светло.',
+    box: { pos: [-0.12, -0.1], size: [0.5, 0.3, 0.5], holes: [{ wall: 'top', shape: 'rect', size: [0.4, 0.38], offset: [0, 0.04] }] },
+    pedestal: { size: [0.34, 0.05, 0.2], pos: [0, 0], plate: true },
+    loot: [
+      { type: 'bar', pos: [-0.07, 0.05, 0], yaw: 90, mass: 2 },
+      { type: 'weight', pos: [0.42, 0, -0.14], role: 'prop', mass: 2 },
+    ],
+    hand: { pos: [-0.12, 1.36, 0.0], yaw: 0, pitch: -60 },
+    safe: { pos: [0.5, 0.22], radius: 0.16 },
+    traps: [
+      { type: 'scale', min: 1.6, grace: 0.4, alarmSeconds: 3 },
+      { type: 'lasers', failDelay: 1.3, beams: [
+        { from: [-0.17, 0.25, -0.25], to: [-0.17, 0.25, 0.25] },
+        { from: [0.19, 0.25, -0.25], to: [0.19, 0.25, 0.25] },
+      ] },
+      { type: 'blackout', on: 4, warn: 0.5, dark: 2 },
+    ],
+    stars: { three: { time: 45, touches: 1 }, two: { time: 85, touches: 4 } },
+  },
+  {
+    id: 38,
+    name: 'Карусель с заслонкой',
+    hint: 'Слиток вертится, заслонка ходит. Войди сразу после открытия, поймай слиток торцом к себе и успей выйти.',
+    box: { pos: [-0.1, -0.12], size: [0.46, 0.3, 0.46], holes: [{ wall: 'front', shape: 'circle', radius: 0.088, offset: [0, -0.038] }] },
+    pedestal: null,
+    bar: { pos: [0, 0.03, -0.03], yaw: 20, mass: 1.5, friction: 0.7 },
+    hand: { pos: [-0.1, 1.02, 0.38], yaw: 0, pitch: 0 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    traps: [
+      { type: 'spinner', radius: 0.15, height: 0.03, pos: [0, -0.03], speed: 0.9 },
+      { type: 'shutter', open: 8, warn: 0.7, closing: 0.5, closed: 2, autoNeed: 7 },
+    ],
+    monkey: true,
+    timeLimit: 150,
+    stars: { three: { time: 30, touches: 2 }, two: { time: 60, touches: 5 } },
+  },
+  {
+    id: 39,
+    name: 'Последний рубеж',
+    hint: 'Слиток поперёк узкого отверстия, лучи по бокам, а красное пятно камеры ползёт по столу. Пока кисть в пятне — замри.',
+    box: { pos: [-0.1, -0.12], size: [0.46, 0.28, 0.44], holes: [{ wall: 'front', shape: 'rect', size: [0.15, 0.125], offset: [0, -0.05] }] },
+    pedestal: { size: [0.34, 0.02, 0.3], pos: [0, -0.02] },
+    bar: { pos: [0, 0.02, -0.02], yaw: 0, mass: 1.5, friction: 0.5 },
+    hand: { pos: [-0.1, 1.0, 0.36], yaw: 0, pitch: 0 },
+    safe: { pos: [0.5, 0.2], radius: 0.16 },
+    monkey: true,
+    traps: [
+      { type: 'lasers', failDelay: 1.3, beams: [
+        { from: [-0.14, 0, 0.14], to: [-0.14, 0.28, 0.14] },
+        { from: [0.14, 0, 0.14], to: [0.14, 0.28, 0.14] },
+        { from: [-0.23, 0.22, -0.02], to: [0.23, 0.22, -0.02] },
+      ] },
+      { type: 'camera', sweep: { from: [-0.34, 0.0], to: [0.34, 0.0], period: 10, radius: 0.13 }, phase: 2.5 },
+    ],
+    stars: { three: { time: 90, touches: 6 }, two: { time: 180, touches: 12 } },
+  },
+  {
+    id: 40,
+    name: 'Сейф босса',
+    stars: { three: { time: 200, touches: 5 }, two: { time: 390, touches: 10 } },
+    stages: [
+      {   // этап 1: заслонка и камера
+        hint: 'Этап 1. Заслонка и камера: войди сразу после открытия и выйди до того, как камера посмотрит.',
+        box: { pos: [-0.2, -0.1], size: [0.58, 0.28, 0.4], holes: [{ wall: 'right', shape: 'rect', size: [0.24, 0.17], offset: [0, -0.02] }] },
+        pedestal: { size: [0.32, 0.03, 0.14], pos: [-0.03, 0] },
+        loot: [{ type: 'bar', pos: [-0.03, 0.03, 0], mass: 1.5 }],
+        hand: { pos: [0.4, 1.03, -0.1], yaw: 90, pitch: 0 },
+        safe: { pos: [0.52, 0.22], radius: 0.16 },
+        traps: [
+          { type: 'shutter', open: 7, warn: 0.7, closing: 0.5, closed: 2, autoNeed: 6 },
+          { type: 'camera', away: 7.4, warn: 0.8, watch: 2.0, phase: 3, autoNeed: 3.8 },
+        ],
+        auto: { speed: 0.75 },
+      },
+      {   // этап 2: весы в темноте
+        hint: 'Этап 2. Весы в темноте: груз на весы, потом слиток. Свет гаснет — запоминай.',
+        box: { pos: [-0.12, -0.1], size: [0.5, 0.3, 0.5], holes: [{ wall: 'top', shape: 'rect', size: [0.4, 0.38], offset: [0, 0.04] }] },
+        pedestal: { size: [0.34, 0.05, 0.2], pos: [0, 0], plate: true },
+        loot: [
+          { type: 'bar', pos: [-0.07, 0.05, 0], yaw: 90, mass: 2 },
+          { type: 'weight', pos: [0.42, 0, -0.14], role: 'prop', mass: 2 },
+        ],
+        hand: { pos: [-0.12, 1.36, 0.0], yaw: 0, pitch: -60 },
+        safe: { pos: [0.5, 0.22], radius: 0.16 },
+        traps: [{ type: 'scale', min: 1.6, grace: 0.4, alarmSeconds: 3 }, { type: 'blackout', on: 4, warn: 0.5, dark: 2 }],
+        auto: { swap: true },
+      },
+      {   // этап 3: большой слиток поперёк узкого отверстия
+        hint: 'Этап 3. Главный приз лежит поперёк. Разверни его торцом к себе и выноси — медленно, он тяжёлый.',
+        box: { pos: [-0.1, -0.12], size: [0.5, 0.3, 0.46], holes: [{ wall: 'front', shape: 'rect', size: [0.17, 0.15], offset: [0, -0.06] }] },
+        pedestal: { size: [0.4, 0.02, 0.34], pos: [0, -0.02] },
+        loot: [{ type: 'bigbar', pos: [0, 0.02, -0.02], yaw: 0, mass: 4 }],
+        hand: { pos: [-0.1, 1.02, 0.38], yaw: 0, pitch: 0 },
+        safe: { pos: [0.52, 0.2], radius: 0.18 },
+        monkey: true,
+        auto: { ratchet: true, speed: 0.4 },
+      },
+    ],
+  },
 ];
 
 // Пороги звёзд новых уровней поставлены по правилу от времени автопилота T (эталон в tools/test/play.mjs):
 // 3 звезды — не дольше max(20 с, 3·T), 2 звезды — не дольше max(40 с, 6·T), с округлением вверх до 5 с.
-// Исключения — уровни, где автопилот разворачивает слиток перехватами (3 и 11): он там заведомо медленнее человека.
+// Исключения — уровни, где автопилот разворачивает слиток перехватами (3, 11 и 39): он там заведомо медленнее человека
+// и чаще задевает стекло; и «Карусель с заслонкой» (38), где время зависит от того, как повернулась платформа.
 // Это заглушка до игры живых людей.
+/** Сколько этапов в уровне (обычный уровень — один). */
+export const stageCount = (level) => (level.stages ? level.stages.length : 1);
+
+/**
+ * Описание этапа многоэтапного уровня в виде обычного уровня. У такого уровня есть список `stages`:
+ * каждый этап задаёт свою коробку, добычу, ловушки, руку и подсказку; название, id и пороги звёзд — общие.
+ * glassId — под каким именем лежат стенки этого этапа в glass_box.glb.
+ */
+export function stageDef(level, index = 0) {
+  if (!level.stages) return level;
+  const { stages, ...common } = level;
+  return { ...common, ...stages[index], id: level.id, glassId: `${level.id}s${index + 1}`, stage: index + 1, stageCount: stages.length };
+}
+
+/** Все уровни и этапы подряд в виде обычных уровней — для проверок и экспорта в Blender. */
+export const playable = () => LEVELS.flatMap((l) => Array.from({ length: stageCount(l) }, (_, i) => stageDef(l, i)));
+
 export function starsFor(level, time, touches) {
   const s = level.stars;
   if (time <= s.three.time && touches <= s.three.touches) return 3;

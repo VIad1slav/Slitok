@@ -350,6 +350,10 @@ export async function createMaterials() {
   M.chips = pbr(chips, { envMapIntensity: 0.5 });
   M.dice = pbr(dice, { envMapIntensity: 0.5 });
   M.diamond = new THREE.MeshPhysicalMaterial({ color: 0xeaf6ff, metalness: 0, roughness: 0.02, envMapIntensity: 3.2, iridescence: 1, iridescenceIOR: 1.8, clearcoat: 1, flatShading: true });
+  M.lacquer = new THREE.MeshStandardMaterial({ color: 0x0b0a0a, metalness: 0, roughness: 0.22, envMapIntensity: 0.7 });   // стол босса (без лака-clearcoat: он дорог на большой площади)
+  M.woodPlain = new THREE.MeshStandardMaterial({ map: wood.map, normalMap: wood.normalMap, roughnessMap: wood.ormMap, roughness: 1, metalness: 0, envMapIntensity: 0.4 });   // дерево обстановки: без лака, дешевле стола
+  M.carpet = new THREE.MeshStandardMaterial({ map: velvet.map, normalMap: velvet.normalMap, color: 0x8a5050, roughness: 0.95, metalness: 0, envMapIntensity: 0.05 });   // ковёр: бархат без дорогого блеска ворса
+  M.windowGlow = new THREE.MeshBasicMaterial({ color: 0x3a5a8c, toneMapped: false });   // окно ломбарда: ночной свет с улицы
   M.steelTable = new THREE.MeshStandardMaterial({ color: 0x3a3e46, metalness: 0.9, roughness: 0.38, envMapIntensity: 0.6 });   // стол банка
   M.brass = new THREE.MeshStandardMaterial({ color: 0xc9a045, metalness: 1, roughness: 0.32, envMapIntensity: 0.9 });
   M.canvas = new THREE.MeshStandardMaterial({ color: 0x1a2230, metalness: 0, roughness: 0.75, envMapIntensity: 0.2 });

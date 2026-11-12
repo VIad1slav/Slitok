@@ -12,6 +12,7 @@ import { GLASS } from './config.js';
 import { T } from './strings.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
+const _m4 = new THREE.Matrix4(), _up = new THREE.Vector3(0, 1, 0);
 
 function staticBox(world, material, center, half, kind) {
   const body = new CANNON.Body({ type: CANNON.Body.STATIC, material, collisionFilterGroup: GROUP.STATIC, collisionFilterMask: GROUP.BAR });
@@ -215,6 +216,8 @@ class SpinnerTrap {
  * или вращается быстрее rotLimit (рад/с), и убывает, когда рука неподвижна. Заполнилась — тревога и провал.
  *   fillTime — за сколько секунд полоска заполняется при движении 0,25 м/с; phase — сдвиг начала цикла, с;
  *   autoNeed — автопилоту: сколько секунд «не смотрит» должно оставаться, чтобы начинать вход.
+ * Вариант «пятно» (sweep: { from: [x, z], to: [x, z], period, radius } — относительно центра коробки): камера смотрит
+ * всегда, но только в круг, который ползёт по столу туда-обратно; замереть должна кисть, пока она в круге.
  */
 class CameraTrap {
   constructor(def, env) {
@@ -256,9 +259,23 @@ class CameraTrap {
     const m = new THREE.Matrix4().lookAt(this.target, this.head.getWorldPosition(new THREE.Vector3()), new THREE.Vector3(0, 1, 0));
     this._q1.setFromRotationMatrix(m);                                              // смотрит на коробку
     this._q0.copy(this._q1).premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 1.9)); // отвернулась
+    if (this.def.sweep) {
+      const sw = this.def.sweep, bx = lvl.box.pos[0], bz = lvl.box.pos[1];
+      this.zone = { from: new THREE.Vector3(bx + sw.from[0], WORLD.tableY, bz + sw.from[1]), to: new THREE.Vector3(bx + sw.to[0], WORLD.tableY, bz + sw.to[1]), c: new THREE.Vector3(), r: sw.radius, inside: false };
+      this.patch = new THREE.Mesh(new THREE.CircleGeometry(sw.radius, 40), new THREE.MeshBasicMaterial({ color: 0xff2a18, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false }));
+      this.patch.rotation.x = -Math.PI / 2; this.patch.renderOrder = 1;
+      env.scene.add(this.patch);
+      this._headPos = this.head.getWorldPosition(new THREE.Vector3());
+      this._zoneAt(0);
+    }
     this._phase(0);
   }
+  _zoneAt(time) {
+    const sw = this.def.sweep, s = 0.5 - 0.5 * Math.cos((2 * Math.PI * (time + this.def.phase)) / sw.period);
+    this.zone.c.copy(this.zone.from).lerp(this.zone.to, s);
+  }
   _phase(time) {
+    if (this.zone) { this.state = 'watch'; this.aim = 1; this.left = 0; return false; }
     const d = this.def, cycle = d.away + d.warn + d.watch, t = (((time + d.phase) % cycle) + cycle) % cycle;
     const prev = this.state;
     if (t < d.away) { this.state = 'away'; this.left = d.away - t; this.aim = Math.max(0, 1 - t / 0.6); }
@@ -277,17 +294,30 @@ class CameraTrap {
     let rot = 0;
     if (this.hasPrev) rot = 2 * Math.acos(Math.min(1, Math.abs(this.prevQuat.dot(h.quat)))) / dt;
     this.prevQuat.copy(h.quat); this.hasPrev = true;
-    if (this.state === 'watch' && !this.tripped) {
+    if (this.zone) { this._zoneAt(ctx.time); this.zone.inside = Math.hypot(h.pos.x - this.zone.c.x, h.pos.z - this.zone.c.z) < this.zone.r; }
+    if (this.state === 'watch' && !this.tripped && (!this.zone || this.zone.inside)) {
       const move = Math.max(0, h.vel.length() - d.speedLimit) / (0.25 - d.speedLimit) + Math.max(0, rot - d.rotLimit) / 1.5;
       this.meter = move > 0 ? this.meter + (Math.min(move, 3) * dt) / d.fillTime : Math.max(0, this.meter - dt * 1.5);
       if (this.meter >= 1) { this.tripped = true; ctx.game.alarm(d.failDelay, T.cameraFail, true, T.cameraFail); }
     } else if (!this.tripped) this.meter = Math.max(0, this.meter - dt * 1.5);
-    if (this.state === 'watch' || this.meter > 0) ctx.game.hud.meter = { label: T.cameraMeter, value: this.meter };
+    if ((this.state === 'watch' && (!this.zone || this.zone.inside)) || this.meter > 0) ctx.game.hud.meter = { label: T.cameraMeter, value: this.meter };
   }
   /** Автопилоту: замереть, пока камера поворачивается или смотрит. */
-  autoHold() { return this.state !== 'away'; }
-  autoReady(phase) { return this.state === 'away' && (phase !== 'enter' || this.left >= this.def.autoNeed); }
+  autoHold(hand) {
+    if (this.zone) return Math.hypot(hand.pos.x - this.zone.c.x, hand.pos.z - this.zone.c.z) < this.zone.r + 0.07;   // пятно рядом — замереть заранее
+    return this.state !== 'away';
+  }
+  autoReady(phase) { return !!this.zone || (this.state === 'away' && (phase !== 'enter' || this.left >= this.def.autoNeed)); }
   update(time) {
+    if (this.zone) {   // голова следит за пятном, пятно лежит на столе
+      this.patch.position.set(this.zone.c.x, WORLD.tableY + 0.004, this.zone.c.z);
+      this.patch.material.opacity = 0.14 + 0.03 * Math.sin(time * 6);
+      this._q1.setFromRotationMatrix(_m4.lookAt(this.zone.c, this._headPos, _up));
+      this.head.quaternion.copy(this._q1);
+      this.led.material.color.set(0xff2010);
+      this.beam.material.color.set(0xff2a18); this.beam.material.opacity = 0.05; this.beam.visible = true;
+      return;
+    }
     const s = this.aim * this.aim * (3 - 2 * this.aim);
     this.head.quaternion.copy(this._q0).slerp(this._q1, s);
     const watching = this.state === 'watch';
@@ -299,6 +329,7 @@ class CameraTrap {
   }
   dispose() {
     this.env.scene.remove(this.group); this.env.world.removeBody(this.body); this.env.stage.watch = 0;
+    if (this.patch) { this.env.scene.remove(this.patch); this.patch.geometry.dispose(); this.patch.material.dispose(); }
     this.led.geometry.dispose(); this.led.material.dispose(); this.beam.geometry.dispose(); this.beam.material.dispose();
   }
 }

@@ -118,6 +118,7 @@ export class Loot {
     this.usedGlb = !!glb;
     this.mesh = glb ? glb.clone(true) : fallbackMesh(type, this.material);
     this.mesh.traverse((o) => { if (o.isMesh) { o.material = this.material; o.castShadow = true; o.receiveShadow = true; } });
+    if (glb && type.modelScale) this.mesh.scale.fromArray(type.modelScale);
     scene.add(this.mesh);
 
     this._pos = new THREE.Vector3(); this._quat = new THREE.Quaternion();

@@ -34,7 +34,7 @@ function* moveTo(g, [x, y, z], speed = 0.6, tol = 0.015, timeout = 5, untilStall
   for (let t = 0; t < timeout; t += DT) {
     if (untilStall && t > 0.3) { still = h.vel.length() < 0.02 ? still + DT : 0; if (still > 0.2) return false; }
     // ловушка просит замереть (камера смотрит): цель кисти — там, где кисть сейчас; время шага не тратится
-    if (g.traps.some((tr) => tr.autoHold && tr.autoHold())) { h.target.copy(h.pos); t -= DT; yield; continue; }
+    if (g.traps.some((tr) => tr.autoHold && tr.autoHold(h))) { h.target.copy(h.pos); t -= DT; yield; continue; }
     const d = cur.distanceTo(dst), step = speed * DT;
     if (d <= step) cur.copy(dst); else cur.lerp(dst, step / d);
     h.target.copy(cur);
@@ -66,11 +66,11 @@ const topOf = (item) => item.position().y + item.type.bounds[1] / 2;
 const heightOf = (item) => item.type.bounds[1];
 
 /** Как рука входит в коробку: { mode: 'claw' } для отверстия сверху или { mode: 'reach', axis, dir } для бокового. */
-export function entryOf(level) {
-  const wall = level.box.holes[0].wall;
-  if (wall === 'top') return { mode: 'claw' };
-  if (wall === 'right' || wall === 'left') return { mode: 'reach', axis: 'x', dir: wall === 'right' ? 1 : -1 };
-  return { mode: 'reach', axis: 'z', dir: wall === 'front' ? 1 : -1 };
+export function entryOf(level, holeIndex = 0) {
+  const hole = level.box.holes[holeIndex], wall = hole.wall;
+  if (wall === 'top') return { mode: 'claw', hole, pitch: -60 };
+  if (wall === 'right' || wall === 'left') return { mode: 'reach', hole, axis: 'x', dir: wall === 'right' ? 1 : -1, yaw: wall === 'right' ? 90 : -90 };
+  return { mode: 'reach', hole, axis: 'z', dir: wall === 'front' ? 1 : -1, yaw: 0 };
 }
 
 /** Точка на расстоянии d от p вдоль оси входа (наружу из коробки). */
@@ -190,7 +190,7 @@ export function* reach(g, item, entry, { speed = 0.6, approachSpeed = speed, out
   const yIn = yGrab + (hover ?? 0.012);
   // Рука входит и выходит по оси отверстия. Если предмет лежит в стороне от неё (съехал, пока его
   // разворачивали), рука сначала заходит по центру отверстия и только внутри сдвигается к предмету.
-  const lat = entry.axis === 'z' ? 'x' : 'z', hole = g.level.box.holes[0];
+  const lat = entry.axis === 'z' ? 'x' : 'z', hole = entry.hole || g.level.box.holes[0];
   const axisPoint = b.clone();
   if (!entry.vec) {   // вход вдоль оси коробки; при входе под углом (entry.vec) рука идёт по прямой прямо к предмету
     axisPoint[lat] = g.level.box.pos[lat === 'x' ? 0 : 1] + hole.offset[0];
@@ -273,21 +273,36 @@ const targets = (g) => g.items.filter((it) => it.role === 'target' && !it.banked
 
 /** Сценарий по умолчанию: каждый предмет добычи — взять через отверстие и донести в «сейф». */
 export function* standard(g, o = {}) {
-  const entry = entryOf(g.level);
   if (o.yaw != null) yield* turn(g, { yaw: o.yaw });        // щель требует повернуть кисть заранее
-  // вход под углом: рука идёт по прямой туда, куда смотрит кисть (через два смещённых отверстия)
-  if (o.angled) { entry.vec = [Math.sin(g.hand.ang.yaw), Math.cos(g.hand.ang.yaw)]; }
-  for (const item of targets(g)) {
-    if (g.state !== 'playing') return;
+  let first = true;
+  // берём предметы по одному, пока вся добыча не окажется в сейфе; неудачная попытка повторяется (но не бесконечно)
+  for (let attempt = 0; attempt < 14; attempt++) {
+    const item = targets(g)[0];
+    if (!item || g.state !== 'playing') return;
+    const entry = entryOf(g.level, item.def.via ?? 0);     // у предмета может быть своё отверстие (поле via)
+    // вход под углом: рука идёт по прямой туда, куда смотрит кисть (через два смещённых отверстия)
+    if (o.angled) entry.vec = [Math.sin(g.hand.ang.yaw), Math.cos(g.hand.ang.yaw)];
+    // если коробка с несколькими отверстиями — поставить кисть так, как нужно для этого отверстия
+    if (!first || item.def.via) {
+      const pitchNow = THREE.MathUtils.radToDeg(g.hand.ang.pitch);
+      if (entry.mode === 'claw' && pitchNow > -30) yield* turn(g, { pitch: entry.pitch, yaw: 0 });
+      if (entry.mode === 'reach' && pitchNow < -30 && !o.dive) {
+        yield* moveTo(g, [g.hand.pos.x, Math.max(g.hand.pos.y, WORLD.tableY + g.level.box.size[1] + 0.15), g.hand.pos.z], 0.6, 0.03);
+        yield* turn(g, { pitch: 0, yaw: entry.yaw });
+      }
+    }
+    first = false;
+    // скользкую добычу носим медленно
+    const io = item.type.slipSpeed && item.type.slipSpeed < 0.6 ? { ...o, speed: Math.min(o.speed ?? 0.6, 0.3), deliverSpeed: 0.3 } : o;
     if (o.dive) {
-      yield* diveGrab(g, item, o);
+      yield* diveGrab(g, item, io);
       const [sx, sz] = g.level.safe.pos;
-      yield* diveDrop(g, item, [sx, WORLD.tableY, sz], { ...o, settle: 1.2, stay: true, outside: true });
-    } else if (entry.mode === 'claw') yield* claw(g, item, o);
+      yield* diveDrop(g, item, [sx, WORLD.tableY, sz], { ...io, settle: 1.2, stay: true, outside: true });
+    } else if (entry.mode === 'claw') yield* claw(g, item, io);
     else {
-      const y = yield* reach(g, item, entry, o);
+      const y = yield* reach(g, item, entry, io);
       if (o.rollOut) yield* turn(g, { roll: 0 });
-      yield* deliver(g, item, y, o.deliverSpeed);
+      yield* deliver(g, item, y, io.deliverSpeed);
     }
   }
 }
@@ -357,12 +372,49 @@ const AUTO = {
   30: { speed: 0.3, deliverSpeed: 0.3 },                 // бриллиант: медленно, иначе выскользнет
   31: { speed: 0.5, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.035, gripSettle: 0.35 },   // фишки на карусели в темноте
   32: { speed: 0.3, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.03, gripSettle: 0.35, deliverSpeed: 0.3 },   // бриллиант на карусели
+  33: { speed: 0.5 },                                    // большой слиток: не быстрее, чем держит хват
+  34: { speed: 0.75 },                                   // камера + заслонка
+  // Тёплый приём: горячий большой слиток за барьером — нырок, положить перед коробкой, остыть, донести.
+  35: {
+    script: function* (g) {
+      const item = g.items[0], b = g.level.box;
+      yield* diveGrab(g, item, { speed: 0.5 });
+      yield* diveDrop(g, item, [b.pos[0], WORLD.tableY, b.pos[1] + b.size[2] / 2 + 0.2], { speed: 0.6, settle: 1.6, stay: true, outside: true, back: 0.12 });
+      yield* diveGrab(g, item, { speed: 0.5, back: 0.15 });
+      const [sx, sz] = g.level.safe.pos;
+      yield* diveDrop(g, item, [sx, WORLD.tableY, sz], { speed: 0.6, settle: 1.2, stay: true, outside: true, back: 0.12 });
+    },
+  },
+  36: { lift: 0.04 },                                    // коллекция: бриллиант лежит на дне — поднять выше края щели
+  // Весы босса: как «Подмена» — сначала груз на весы, потом слиток.
+  37: {
+    script: function* (g) {
+      const weight = g.items.find((it) => it.typeName === 'weight'), ped = g.level.pedestal;
+      yield* clawGrab(g, weight);
+      yield* clawDrop(g, weight, [g.level.box.pos[0] + ped.pos[0] + 0.09, g.level.box.pos[1] + ped.pos[1]], WORLD.tableY + ped.size[1], 0.8);
+      yield* standard(g);
+    },
+  },
+  38: { speed: 0.5, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.035, gripSettle: 0.35 },   // карусель с заслонкой
+  // Последний рубеж: слиток поперёк узкого отверстия — развернуть перехватами (замирая в пятне камеры) и вынести.
+  39: { script: function* (g) { yield* ratchet(g, g.items[0]); yield* standard(g, { speed: 0.5 }); } },
   // Карусель: висеть над платформой и сжать пальцы, когда слиток смотрит торцом на отверстие.
   8: { speed: 0.5, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.035, gripSettle: 0.35 },
 };
 
 /** Запустить сценарий уровня. Возвращает генератор для game.autopilot. */
 export function autopilotFor(game) {
-  const a = AUTO[game.level.id] || game.level.auto || {};
-  return a.script ? a.script(game) : standard(game, a);
+  // у этапов многоэтапного уровня настройки лежат в данных этапа (поле auto):
+  //   { ratchet: true } — сначала развернуть предмет перехватами; { swap: true } — сначала груз на весы
+  const a = game.level.auto || AUTO[game.level.id] || {};
+  if (a.script) return a.script(game);
+  return (function* () {
+    if (a.swap) {
+      const weight = game.items.find((it) => it.typeName === 'weight'), ped = game.level.pedestal;
+      yield* clawGrab(game, weight);
+      yield* clawDrop(game, weight, [game.level.box.pos[0] + ped.pos[0] + 0.09, game.level.box.pos[1] + ped.pos[1]], WORLD.tableY + ped.size[1], 0.8);
+    }
+    if (a.ratchet) yield* ratchet(game, game.items[0]);
+    yield* standard(game, a);
+  })();
 }

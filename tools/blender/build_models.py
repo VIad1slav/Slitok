@@ -82,6 +82,9 @@ def main():
         C.export_glb(os.path.join(C.MODELS, f"{name}.glb"), [build()])
     C.reset_scene()
     C.export_glb(os.path.join(C.MODELS, "set_casino.glb"), [M.build_set_casino(data)])
+    for name, build in (("set_pawnshop", M.build_set_pawnshop), ("set_boss", M.build_set_boss)):
+        C.reset_scene()
+        C.export_glb(os.path.join(C.MODELS, f"{name}.glb"), [build(data)])
     print("[models] готово")
 
 

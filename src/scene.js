@@ -92,12 +92,15 @@ export class Stage {
     const byName = (o) => {
       const n = (o.material?.name || '').toLowerCase();
       if (n.includes('tile')) return M.tiles;
+      if (n.includes('wood_plain')) return M.woodPlain;
       if (n.includes('wood')) return M.wood;
+      if (n.includes('window')) return M.windowGlow;
       if (n.includes('neon_pink')) return M.neonPink;
       if (n.includes('neon_green')) return M.neonGreen;
       if (n.includes('glow')) return M.lampGlow;
       if (n.includes('steel')) return M.steel;
       if (n.includes('metal')) return M.metal;
+      if (n.includes('carpet')) return M.carpet;
       if (n.includes('velvet')) return M.velvet;
       if (n.includes('brass')) return M.brass;
       if (n.includes('canvas')) return M.canvas;
@@ -114,6 +117,8 @@ export class Stage {
     for (const [name, root] of Object.entries(models)) {
       if (!name.startsWith('set_') || !root) continue;
       adopt(root, false); root.visible = false; this.sets[name.slice(4)] = root;
+      // обстановка — фон: тени на неё не падают (выборка мягких теней на больших ближних поверхностях заметно дорожит кадр)
+      root.traverse((o) => { if (o.isMesh) o.receiveShadow = false; });
     }
     this.tableMeshes = [];
     if (models.room) adopt(models.room, false);

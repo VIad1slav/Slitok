@@ -191,7 +191,7 @@ export class UI {
 
   /** @param place место уровня в кампании ({ heist, number }) или null для уровня вне кампании */
   startLevel(level, place) {
-    this.$.lvl.textContent = place ? T.hudLevel(place.heist.name, place.number, level.name) : T.hudLevelPlain(level.id, level.name);
+    this.$.lvl.textContent = (place ? T.hudLevel(place.heist.name, place.number, level.name) : T.hudLevelPlain(level.id, level.name)) + (level.stageCount ? ` · ${T.stageLabel(level.stage, level.stageCount)}` : '');
     this.$.lootlabel.textContent = T.hudLoot;
     this.$.hint.textContent = level.hint; this.$.hint.classList.remove('gone');
     this.hintTimer = 10;
@@ -241,6 +241,9 @@ export class UI {
     this._syncOptions();
     this.show('win');
   }
+
+  /** Короткое затемнение при смене этапа. */
+  fade() { this.vignette.classList.remove('fade'); void this.vignette.offsetWidth; this.vignette.classList.add('fade'); }
 
   showLose(reason) {
     this.loseKicker.textContent = reason;

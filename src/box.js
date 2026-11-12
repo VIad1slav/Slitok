@@ -127,7 +127,7 @@ export class GlassBox {
 
   _buildVisual(wall, frame, hole, glbRoot) {
     const entry = { meshes: [], crack: null, hits: 0, capGeometry: null };
-    const src = glbRoot?.getObjectByName(`L${this.level.id}_${wall}`);
+    const src = glbRoot?.getObjectByName(`L${this.level.glassId ?? this.level.id}_${wall}`);
     if (src) {
       this.usedGlb = true;
       const node = src.clone(true);

@@ -12,6 +12,7 @@ export const COSMETICS = [
   { id: 'glove_red', kind: 'hand', name: 'красная перчатка', material: 'gloveLight', tint: 0x8c1512, unlockStars: 10 },
   { id: 'glove_white', kind: 'hand', name: 'белая перчатка музейщика', material: 'gloveLight', tint: 0xd9d5c9, unlockStars: 22 },
   { id: 'glove_green', kind: 'hand', name: 'зелёная перчатка крупье', material: 'gloveLight', tint: 0x0f6b3c, unlockStars: 62 },
+  { id: 'glove_gold', kind: 'hand', name: 'золотая перчатка', material: 'gloveLight', tint: 0xd8a032, unlockStars: 90 },
   // Украшения: модель из assets/models, прикреплена к кости руки (bone). fallback — запасной тор, если модели нет:
   // { radius, tube, pos, rot (градусы), scale } в координатах кисти (-Z вперёд, +Y тыльная сторона).
   { id: 'ring', kind: 'accessory', name: 'золотое кольцо', model: 'ring', bone: 'ring_01', unlockStars: 34,

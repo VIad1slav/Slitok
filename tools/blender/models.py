@@ -975,3 +975,112 @@ def build_watch():
     face = _cyl("watch_face", (0, y, 0.0288), 0.0118, 0.0008, "lamp_glow", verts=32)
     crown = _cyl("watch_crown", (0.017, y, 0.0245), 0.0022, 0.004, "steel", axis="X", verts=10)
     return _join("watch", [band, case, face, crown])
+
+
+# ---------------------------------------------------------------------------
+# Обстановка ломбарда и сейфа босса
+# ---------------------------------------------------------------------------
+def _ball(name, center, radius, material, smooth=True):
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=18, ring_count=10, radius=radius, location=center)
+    obj = bpy.context.active_object
+    obj.name = name
+    if smooth:
+        C.shade_smooth(obj)
+    obj.data.materials.append(C.get_material(material))
+    return obj
+
+
+def build_set_pawnshop(data):
+    """Ломбард: стеллажи с заложенными вещами у дальней стены, зарешёченное окно, конторка с лампой."""
+    rw, rh, rd = data["world"]["room"]
+    yb = rd / 2
+    parts = []
+    # два стеллажа по бокам от окна
+    for sx in (-1, 1):
+        x0 = sx * 1.55
+        parts.append(_box("shelf_back", (x0, yb - 0.03, 1.2), (1.5, 0.04, 2.2), "wood_plain"))
+        for z in (0.35, 0.9, 1.45, 2.0):
+            parts.append(_box("shelf", (x0, yb - 0.2, z), (1.5, 0.36, 0.035), "wood_plain", bevel=0.006))
+        for xs in (-0.75, 0.75):
+            parts.append(_box("shelf_side", (x0 + xs, yb - 0.2, 1.2), (0.04, 0.36, 2.3), "wood_plain"))
+        # заложенные вещи: шкатулки, вазы, часы, шары — простые формы разных материалов
+        items = (
+            ("box", -0.5, 0.35, "metal"), ("cyl", -0.15, 0.35, "brass"), ("box", 0.3, 0.35, "wood_plain"), ("ball", 0.58, 0.35, "steel"),
+            ("cyl", -0.55, 0.9, "steel"), ("ball", -0.2, 0.9, "brass"), ("box", 0.2, 0.9, "metal"), ("cyl", 0.55, 0.9, "brass"),
+            ("box", -0.45, 1.45, "brass"), ("ball", 0.0, 1.45, "metal"), ("cyl", 0.4, 1.45, "steel"),
+            ("cyl", -0.3, 2.0, "metal"), ("box", 0.25, 2.0, "steel"),
+        )
+        for k, (kind, dx, z, mat) in enumerate(items):
+            x, y, top = x0 + dx * sx, yb - 0.2, z + 0.018
+            if kind == "box":
+                h = 0.12 + 0.05 * (k % 3)
+                parts.append(_box("item", (x, y, top + h / 2), (0.2, 0.18, h), mat, bevel=0.008))
+            elif kind == "cyl":
+                h = 0.2 + 0.06 * (k % 2)
+                parts.append(_cyl("item", (x, y, top + h / 2), 0.06, h, mat, verts=20, bevel=0.006))
+            else:
+                parts.append(_ball("item", (x, y, top + 0.09), 0.09, mat))
+    # окно с решёткой: слабый ночной свет с улицы
+    parts.append(_box("window_frame", (0, yb - 0.03, 1.75), (1.0, 0.06, 1.1), "metal", bevel=0.01))
+    parts.append(_box("window_pane", (0, yb - 0.062, 1.75), (0.88, 0.01, 0.98), "window"))
+    for i in range(6):
+        parts.append(_cyl("bar", (-0.375 + i * 0.15, yb - 0.09, 1.75), 0.012, 1.0, "metal", verts=10))
+    for z in (1.45, 2.05):
+        parts.append(_box("bar_cross", (0, yb - 0.09, z), (0.9, 0.02, 0.024), "metal"))
+    # конторка с настольной лампой у левой стены
+    cx, cy = -rw / 2 + 0.5, 0.9
+    parts.append(_box("counter", (cx, cy, 0.5), (0.7, 1.3, 1.0), "wood_plain", bevel=0.012))
+    parts.append(_box("counter_top", (cx, cy, 1.02), (0.78, 1.38, 0.05), "wood_plain", bevel=0.01))
+    parts.append(_cyl("lamp_base", (cx, cy - 0.3, 1.06), 0.08, 0.03, "brass", verts=24, bevel=0.004))
+    parts.append(_cyl("lamp_stem", (cx, cy - 0.3, 1.24), 0.012, 0.34, "brass", verts=10))
+    parts.append(_cyl("lamp_shade", (cx, cy - 0.3, 1.46), 0.15, 0.14, "metal", verts=24, radius2=0.07))
+    parts.append(_cyl("lamp_glow", (cx, cy - 0.3, 1.388), 0.13, 0.004, "lamp_glow", verts=24))
+    obj = _join("set_pawnshop", parts, uv_scale=1.0)
+    print(f"[set_pawnshop] {sum(len(p.vertices) - 2 for p in obj.data.polygons)} треугольников")
+    return obj
+
+
+def build_set_boss(data):
+    """Кабинет босса: огромная дверь сейфа прямо за столом, деревянные панели, ковёр, два торшера."""
+    rw, rh, rd = data["world"]["room"]
+    yd, cz = 1.35, 1.45                      # дверь стоит близко к столу (стол в центре комнаты)
+    parts = []
+    parts.append(_box("safe_wall", (0, yd + 0.2, rh / 2), (rw, 0.3, rh), "metal"))
+    # Дверь — один диск; рама и декоративное кольцо — торы, а не диски поверх диска: несколько больших дисков
+    # друг на друге закрашивают одни и те же пиксели по нескольку раз, и кадр заметно дорожает.
+    parts.append(_cyl("door", (0, yd - 0.1, cz), 1.15, 0.16, "metal", axis="Y", verts=72, bevel=0.02))
+    for major, minor, mat, dy in ((1.24, 0.09, "steel", 0.02), (0.76, 0.03, "brass", -0.2)):
+        bpy.ops.mesh.primitive_torus_add(major_radius=major, minor_radius=minor, major_segments=72, minor_segments=10, location=(0, yd + dy, cz), rotation=(math.radians(90), 0, 0))
+        t = bpy.context.active_object
+        C.shade_smooth(t)
+        t.data.materials.append(C.get_material(mat))
+        parts.append(t)
+    parts.append(_cyl("hub", (0, yd - 0.3, cz), 0.1, 0.1, "brass", axis="Y", verts=32, bevel=0.008))
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.36, minor_radius=0.028, major_segments=64, minor_segments=12, location=(0, yd - 0.34, cz), rotation=(math.radians(90), 0, 0))
+    wheel = bpy.context.active_object
+    C.shade_smooth(wheel)
+    wheel.data.materials.append(C.get_material("brass"))
+    parts.append(wheel)
+    for i in range(6):
+        a = 2 * math.pi * i / 6
+        spoke = _box("spoke", (math.cos(a) * 0.18, yd - 0.34, cz + math.sin(a) * 0.18), (0.36, 0.03, 0.03), "brass", bevel=0.005)
+        spoke.rotation_euler = (0, -a, 0)
+        parts.append(spoke)
+    for i in range(16):
+        a = 2 * math.pi * i / 16
+        parts.append(_cyl("bolt", (math.cos(a) * 1.0, yd - 0.19, cz + math.sin(a) * 1.0), 0.045, 0.04, "steel", axis="Y", verts=14, bevel=0.004))
+    # деревянные панели на боковых стенах
+    for sx in (-1, 1):
+        for y in (-1.6, -0.5, 0.6):
+            parts.append(_box("panel", (sx * (rw / 2 - 0.02), y, 1.0), (0.03, 1.0, 1.9), "wood_plain", bevel=0.01))
+    # ковёр под столом и торшеры по бокам
+    parts.append(_box("carpet", (0, -0.2, 0.006), (3.2, 2.4, 0.012), "carpet"))
+    for sx in (-1, 1):
+        x, y = sx * 1.75, 0.55
+        parts.append(_cyl("torch_base", (x, y, 0.02), 0.16, 0.04, "brass", verts=28, bevel=0.006))
+        parts.append(_cyl("torch_stem", (x, y, 0.85), 0.016, 1.62, "brass", verts=12))
+        parts.append(_cyl("torch_shade", (x, y, 1.78), 0.2, 0.26, "carpet", verts=28, radius2=0.12))
+        parts.append(_cyl("torch_glow", (x, y, 1.652), 0.18, 0.004, "lamp_glow", verts=28))
+    obj = _join("set_boss", parts, uv_scale=1.0)
+    print(f"[set_boss] {sum(len(p.vertices) - 2 for p in obj.data.polygons)} треугольников")
+    return obj

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { PHYS, HAND, GLASS, WORLD } from './config.js';
-import { LEVELS, starsFor } from './levels.js';
+import { LEVELS, starsFor, stageDef, stageCount } from './levels.js';
 import { createMaterials } from './textures.js';
 import { loadModels } from './assets.js';
 import { Stage } from './scene.js';
@@ -40,7 +40,7 @@ class Game {
       click: () => { this.audio.init(); this.audio.uiClick(); },
       playId: (id) => this.startLevelById(id),
       resume: () => this.resume(),
-      restart: () => this.startLevel(this.levelIndex),
+      restart: () => this.restartLevel(),
       next: () => { const n = nextAfter(this.level.id, this.save); if (n && !n.locked) this.startLevelById(n.level.id); else this.toMenu(); },
       menu: () => this.toMenu(),
       skin: (id) => this.hand.setSkin(cosmeticById(id)),
@@ -62,6 +62,7 @@ class Game {
     if (this.save.accessory) this.hand.setAccessory(cosmeticById(this.save.accessory), models);
     this._bindInput();
 
+    this.levelDef = LEVELS[0]; this.stageIndex = 0;
     this._loadLevel(LEVELS[0]);
     this.state = 'menu';
     this.ui.setLoading(1);
@@ -100,7 +101,7 @@ class Game {
   _loadLevel(level) {
     this._clearLevel();
     this.level = level;
-    this.levelIndex = LEVELS.indexOf(level);
+    this.levelIndex = LEVELS.indexOf(this.levelDef ?? level);
     const scene = this.stage.scene, world = this.world, M = this.M, staticMaterial = this.staticMaterial;
     this.box = new GlassBox({ scene, world, level, M, glbRoot: this.models.glass_box, staticMaterial });
     if (level.pedestal) this.pedestal = new Pedestal({ scene, world, M, level, glbScene: this.models.pedestal, staticMaterial });
@@ -124,16 +125,38 @@ class Game {
   startLevel(index) { this.startLevelDef(LEVELS[index]); }
   startLevelById(id) { this.startLevelDef(levelById(id)); }
 
-  /** Запустить уровень по его описанию. */
-  startLevelDef(level) {
+  /**
+   * Запустить уровень по его описанию. У многоэтапного уровня (level.stages) stage — номер этапа с нуля,
+   * carry — что переносится между этапами: { time, touches }.
+   */
+  startLevelDef(level, stage = 0, carry = null) {
     this.audio.init();
-    this.autopilot = null; this.result = null;   // автопилот прошлого уровня не должен рулить новым
-    this._loadLevel(level);
+    this.autopilot = null; this.autoOn = false; this.result = null;   // автопилот прошлого уровня не должен рулить новым
+    this.levelDef = level; this.stageIndex = stage;
+    this._loadLevel(stageDef(level, stage));
+    if (carry) { this.time = carry.time; this.touches = carry.touches; }
     this.state = 'playing';
     const place = placeOf(level.id);
     this.stage.setTheme(place?.heist.theme);
     this.ui.hideScreens(); this.ui.showHud(true); this.ui.startLevel(this.level, place);
     this._requestLock();
+  }
+
+  /** «Ещё раз»: обычный уровень — с начала; многоэтапный — с текущего этапа, время и касания продолжают идти. */
+  restartLevel() {
+    if (this.levelDef.stages && this.stageIndex > 0) this.startLevelDef(this.levelDef, this.stageIndex, { time: this.time, touches: this.touches });
+    else this.startLevelDef(this.levelDef);
+  }
+
+  /** Добыча этапа в сейфе: следующий этап или победа. */
+  _stageDone() {
+    const n = stageCount(this.levelDef);
+    if (this.stageIndex + 1 >= n) return this.win();
+    const auto = this.autoOn, scale = this.timeScale;
+    this.audio.bank();
+    this.startLevelDef(this.levelDef, this.stageIndex + 1, { time: this.time, touches: this.touches });
+    this.ui.fade(); this.toast(T.stageDone(this.stageIndex + 1, n));
+    if (auto) { this.autopilot = autopilotFor(this); this.autoOn = true; this.timeScale = scale; }
   }
 
   toMenu() {
@@ -273,7 +296,7 @@ class Game {
       this.keys.add(e.code);
       if (e.code === 'Escape') { if (this.state === 'playing') this.pause(); else if (this.state === 'paused') this.resume(); }
       if (this.state !== 'playing') return;
-      if (e.code === 'KeyR') this.startLevel(this.levelIndex);
+      if (e.code === 'KeyR') this.restartLevel();
       if (e.code === 'KeyC' && !this.stage.toggleSide()) this.toast('Вид сбоку закончился');
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -345,7 +368,7 @@ class Game {
         it.zoneTime += dt;
         if (it.zoneTime > 0.35) {
           this.lootDone++;
-          if (this.lootDone >= this.lootNeed) return this.win();
+          if (this.lootDone >= this.lootNeed) return this._stageDone();
           it.bank(); this.stage.flashSafe(); this.audio.bank();
           this.toast(T.itemBanked(this.lootDone, this.lootNeed));
         }
@@ -395,14 +418,14 @@ class Game {
   /** Показать прохождение уровня автопилотом в реальном времени. */
   runAuto(id = this.level.id, timeScale = 1) {
     this.startLevelById(id);
-    this.autopilot = autopilotFor(this); this.timeScale = timeScale; this.result = null;
+    this.autopilot = autopilotFor(this); this.autoOn = true; this.timeScale = timeScale; this.result = null;
   }
 
   /** Синхронно прогнать уровень автопилотом без отрисовки. Возвращает итог. */
   /** id — номер уровня или описание уровня (объект). */
   autoTest(id, maxSeconds = 120) {
     if (typeof id === 'object') this.startLevelDef(id); else this.startLevelById(id);
-    this.autopilot = autopilotFor(this); this.result = null;
+    this.autopilot = autopilotFor(this); this.autoOn = true; this.result = null;
     while (this.state === 'playing' && this.time < maxSeconds) this._fixedStep(PHYS.step);
     const res = { level: this.level.id, result: this.result || 'timeout', time: +this.time.toFixed(2), touches: this.touches, damage: this.box.damage, stars: this.result === 'won' ? starsFor(this.level, this.time, this.touches) : 0 };
     this.autopilot = null; this.endTimer = 0;

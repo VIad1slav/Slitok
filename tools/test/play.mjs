@@ -28,6 +28,7 @@ const BASELINE = {
   9: 7.13, 10: 5.44, 11: 52.72, 12: 6.78, 13: 8.17, 14: 5.46, 15: 7.96, 16: 12.27, 17: 14.38, 18: 11.07,
   19: 23.59, 20: 6.83, 21: 4.56, 22: 14.08, 23: 7.71, 24: 20.32, 25: 21.92, 26: 20.5,
   27: 32.38, 28: 4.88, 29: 30.82, 30: 9.14, 31: 35.91, 32: 9.72,
+  33: 5.33, 34: 4.56, 35: 10.88, 36: 28.35, 37: 14.08, 38: 4.78, 39: 75.63, 40: 64.77,
 };
 const TIME_TOLERANCE = 0.10;
 
@@ -114,7 +115,7 @@ if (SHOTS) {
 const results = await page.evaluate(async () => {
   const g = window.__gg, H = await import('/src/heists.js');
   g.timeScale = 1;
-  return H.campaignOrder().map((e) => ({ ...g.autoTest(e.level.id, 180), heist: e.heist.name, number: e.number, name: e.level.name }));
+  return H.campaignOrder().map((e) => ({ ...g.autoTest(e.level.id, 400), heist: e.heist.name, number: e.number, name: e.level.name }));
 });
 for (const r of results) {
   const base = BASELINE[r.level], drift = base ? (r.time - base) / base : null;
@@ -249,6 +250,46 @@ check(casino.diamond.held && casino.diamond.slipped && casino.diamond.state === 
 check(casino.ring.bone === 'ring_01' && casino.watch.bone === 'forearm' && casino.watch.recolored === 0 && casino.ring.glb, `украшения: кольцо на кости ${casino.ring.bone}, часы на ${casino.watch.bone}, смена руки их не перекрашивает`);
 check(casino.unlock.at10.join() === 'skin,glove,glove_red' && casino.unlock.at48.join() === 'ring,watch', `косметика по звёздам: при 10 — ${casino.unlock.at10.join(', ')}; украшения при 48 — ${casino.unlock.at48.join(', ')}`);
 
+// --- сейф босса: этапы финала, пятно камеры, большой слиток
+const boss = await page.evaluate(() => {
+  const g = window.__gg, S = 1 / 120, out = {};
+  const run = (s, fn) => { for (let i = 0; i < s * 120 && g.state === 'playing'; i++) { if (fn) fn(); g._fixedStep(S); } };
+  // финал: автопилот доходит до этапа 2, там провал; «Ещё раз» должно вернуть на этап 2 с тем же временем
+  g.startLevelById(40); g.autopilot = null;
+  g.runAuto(40); g.timeScale = 0;
+  for (let i = 0; i < 120 * 120 && g.state === 'playing' && g.stageIndex === 0; i++) g._fixedStep(S);
+  out.stage2 = { index: g.stageIndex, label: g.level.stage + '/' + g.level.stageCount, glass: g.box.usedGlb, time: +g.time.toFixed(1) };
+  g.autopilot = null; g.fail('проверка'); const t = g.time, touches = g.touches;
+  g.restartLevel();
+  out.restart = { index: g.stageIndex, time: +g.time.toFixed(1), kept: Math.abs(g.time - t) < 0.01 && g.touches === touches, state: g.state };
+  // на первом этапе «Ещё раз» начинает уровень с нуля
+  g.startLevelById(40); run(1.0); g.fail('проверка'); g.restartLevel();
+  out.restart0 = { index: g.stageIndex, time: +g.time.toFixed(1) };
+  // пятно камеры (уровень 39): рука вне пятна двигается свободно, в пятне — тревога
+  g.startLevelById(39);
+  const cam = g.traps.find((t2) => t2.def.type === 'camera'), h = g.hand;
+  const follow = (dx) => run(4.0, () => h.target.set(cam.zone.c.x + dx, 1.32, cam.zone.c.z + 0.02 * Math.sin(g.time * 9)));   // над коробкой: пятно считается по горизонтали
+  follow(0.3);                                           // держимся в 30 см от центра пятна и шевелимся
+  out.zoneOut = { meter: +cam.meter.toFixed(2), alarm: !!g.alarmState };
+  follow(0.0);                                           // едем вместе с пятном, в его центре
+  out.zoneIn = { result: g.result, alarm: !!g.alarmState };
+  // большой слиток (уровень 33) выскальзывает на скорости, которую обычный слиток держит
+  g.startLevelById(33);
+  const bar = g.items[0], p = bar.position().clone();
+  run(2.0, () => h.target.set(p.x + 0.4, p.y + 0.06, p.z)); run(1.5, () => h.target.set(p.x, p.y + 0.06, p.z)); run(0.5, () => h.target.set(p.x, p.y + 0.03, p.z));
+  h.setGrip(true); run(0.5);
+  out.big = { held: h.holding, slipSpeed: h.slipSpeed, size: bar.type.bounds.join('×') };
+  run(0.6, () => h.target.set(h.pos.x + 0.11, h.pos.y, h.pos.z));    // рывок наружу, вдоль отверстия
+  out.big.slipped = !h.holding;
+  g.toMenu();
+  return out;
+});
+check(boss.stage2.index === 1 && boss.stage2.glass, `финал: после первого этапа начался этап ${boss.stage2.label} (на ${boss.stage2.time}-й секунде), стекло этапа из Blender`);
+check(boss.restart.index === 1 && boss.restart.kept && boss.restart.state === 'playing', `финал: «Ещё раз» на втором этапе возвращает на этап ${boss.restart.index + 1}, время продолжает идти с ${boss.restart.time} с`);
+check(boss.restart0.index === 0 && boss.restart0.time === 0, 'финал: «Ещё раз» на первом этапе начинает уровень заново');
+check(boss.zoneOut.meter === 0 && !boss.zoneOut.alarm && /Камера/.test(boss.zoneIn.result || '') , `пятно камеры: вне пятна движение не замечено, в пятне — ${boss.zoneIn.result}`);
+check(boss.big.held && boss.big.slipped && boss.big.slipSpeed < 1, `большой слиток ${boss.big.size} м: взят, от рывка выскользнул (порог ${boss.big.slipSpeed} м/с)`);
+
 // --- общая модель добычи
 const loot = await page.evaluate(async () => {
   const g = window.__gg, { LOOT } = await import('/src/loot-types.js'), { LEVELS } = await import('/src/levels.js');
@@ -316,15 +357,20 @@ check(phys.drop.inside && phys.drop.y > 0.9, `брошенный слиток о
 const perf = await page.evaluate(async () => {
   const g = window.__gg, H = await import('/src/heists.js'), gl = g.stage.renderer.getContext(), px = new Uint8Array(4), out = [];
   const time = (n = 40) => { const a = performance.now(); for (let i = 0; i < n; i++) g.stage.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return (performance.now() - a) / n; };
+  // эталон — уровень 1 в том виде, какой он имел в MVP: обстановка по умолчанию (хранилище, деревянный стол).
+  // Уровень вне кампании не получает тему ограбления, поэтому берём копию уровня 1 с чужим id.
+  const { LEVELS } = await import('/src/levels.js');
+  const REF = { ...LEVELS.find((l) => l.id === 1), id: 9000, name: 'эталон MVP' };
   const load = (id, seconds) => {
-    g.runAuto(id); g.timeScale = 0;
+    if (id === 'ref') g.startLevelDef(REF); else g.runAuto(id);
+    g.timeScale = 0;
     for (let k = 0; k < seconds * 120 && g.state === 'playing'; k++) g._fixedStep(1 / 120);
     g.hand.updateVisual(0); for (const it of g.items) if (!it.banked) it.sync();
     for (const tr of g.traps) tr.update(0);
     g.stage.update(0.016, 0, g.hand.pos, 0);
   };
   g.stage.renderer.info.autoReset = false;
-  load(1, 0.5); time(60);                               // прогрев
+  load('ref', 0.5); time(60);                           // прогрев
   for (const e of H.campaignOrder()) {
     let calls = 0, tris = 0;
     const pairs = [];
@@ -332,7 +378,7 @@ const perf = await page.evaluate(async () => {
       load(e.level.id, round ? 0.3 : 2.5);
       if (!round) { g.stage.renderer.info.reset(); g.stage.render(); calls = g.stage.renderer.info.render.calls; tris = g.stage.renderer.info.render.triangles; }
       time(8); const ms = Math.min(time(), time());
-      load(1, 0.3);
+      load('ref', 0.3);
       time(8); pairs.push({ ms, ref: Math.min(time(), time()) });
     }
     // медиана отношений по парам «уровень — эталон»: скачок режима видеокарты портит одну-две пары, но не медиану
@@ -342,12 +388,12 @@ const perf = await page.evaluate(async () => {
   g.stage.renderer.info.autoReset = true; g.timeScale = 1; g.toMenu();
   return out;
 });
-// Пределы: самый тяжёлый уровень MVP — время кадра ×1.02 к уровню 1, 92 вызова, 81 тыс. треугольников.
+// Пределы: самый тяжёлый уровень MVP — время кадра ×1.02 к уровню 1 (в обстановке MVP), 92 вызова, 81 тыс. треугольников.
 // Время кадра — главный критерий: не хуже чем на 15 % (плюс 5 % на остаточный шум); вызовы и треугольники — ориентир.
 const PERF_LIMIT = { calls: 140, tris: 130000, ratio: 1.2 };
 for (const p of perf) {
   const ratio = p.ms / p.ref;
-  check(p.calls <= PERF_LIMIT.calls && p.tris <= PERF_LIMIT.tris && ratio <= PERF_LIMIT.ratio, `отрисовка, уровень ${p.id} «${p.name}»: вызовов ${p.calls}, треугольников ${(p.tris / 1000).toFixed(0)} тыс., кадр ${p.ms.toFixed(2)} мс (×${ratio.toFixed(2)} к уровню 1)`);
+  check(p.calls <= PERF_LIMIT.calls && p.tris <= PERF_LIMIT.tris && ratio <= PERF_LIMIT.ratio, `отрисовка, уровень ${p.id} «${p.name}»: вызовов ${p.calls}, треугольников ${(p.tris / 1000).toFixed(0)} тыс., кадр ${p.ms.toFixed(2)} мс (×${ratio.toFixed(2)} к уровню 1 из MVP)`);
 }
 
 // --- грубая защита от катастрофы: счётчик кадров (в браузере без окна он очень шумный, решения по нему не принимаем)

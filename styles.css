@@ -115,3 +115,7 @@ kbd { font: 600 12px var(--ui); padding: 3px 8px; border: 1px solid rgba(255, 25
 .mmark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); }
 .meter.good .mbar { border-color: rgba(120, 230, 160, 0.6); }
 .meter.good .mbar i { background: linear-gradient(90deg, #2fae6a, #7dffb0); }
+
+/* --- затемнение при смене этапа --- */
+.vignette.fade { animation: stagefade 0.8s ease-out; }
+@keyframes stagefade { 0% { background: rgba(0, 0, 0, 1); } 100% { background: rgba(0, 0, 0, 0); } }
