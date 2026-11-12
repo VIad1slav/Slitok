@@ -12,7 +12,7 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 page.on('pageerror', (e) => console.log('PAGEERROR', String(e)));
-await page.goto(`http://127.0.0.1:${server.address().port}/`);
+await page.goto(`http://127.0.0.1:${server.address().port}/?dev=1`);
 await page.waitForFunction(() => window.__gg && window.__gg.state === 'menu', null, { timeout: 60000 });
 const code = await readFile(process.argv[2], 'utf8');
 const out = await page.evaluate(code);

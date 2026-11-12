@@ -2,6 +2,7 @@
 import { STORAGE_KEY } from './config.js';
 import { HEISTS, heistStars, isHeistUnlocked, totalStars, continueLevel, levelById } from './heists.js';
 import { cosmeticById, unlockedCosmetics } from './cosmetics.js';
+import { platform } from './platform.js';
 import { t, tList, tPick, LANGS, getLang, langName, levelName, levelHint, heistName, heistTagline, cosmeticName } from './i18n/index.js';
 
 // --- сохранение (localStorage может быть недоступен — всё в try/catch) ---------
@@ -64,6 +65,7 @@ export class UI {
     card.append(this._button(t('menu.play'), () => this.h.playId(continueLevel(this.save).id), 'primary'));
     card.append(this._button(t('menu.heists'), () => this.show('levels')));
     card.append(this._button(t('menu.controls'), () => this.show('controls')));
+    if (platform.isDesktop) card.append(this._button(t('menu.quit'), () => this.h.quit()));   // в браузере закрывать нечего
     const opts = el('div', 'opts');
     this.skinBtn = this._button('', () => {   // перебор открытых вариантов руки по кругу
       const list = unlockedCosmetics('hand', totalStars(this.save)), i = list.findIndex((c) => c.id === this.save.skin);
@@ -81,7 +83,9 @@ export class UI {
     }, 'ghost');
     this.flickerBtn = this._button('', () => { this.save.noFlicker = !this.save.noFlicker; this._syncOptions(); storeSave(this.save); }, 'ghost');
     this.langBtn = this._button('', () => this.h.language(LANGS[(LANGS.indexOf(getLang()) + 1) % LANGS.length]), 'ghost');   // языки по кругу
-    opts.append(this.skinBtn, this.accBtn, this.flickerBtn, this.langBtn, vol);
+    this.fsBtn = this._button('', () => this.h.fullscreen(!platform.isFullscreen()), 'ghost');   // полный экран / окно (ещё Alt+Enter)
+    this.fsBtn.hidden = !platform.isDesktop;
+    opts.append(this.skinBtn, this.accBtn, this.flickerBtn, this.langBtn, this.fsBtn, vol);
     card.append(opts);
     menu.append(card);
 
@@ -159,6 +163,7 @@ export class UI {
     this.accBtn.hidden = unlockedCosmetics('accessory', totalStars(this.save)).length === 0;   // пока ничего не открыто, кнопки нет
     this.flickerBtn.innerHTML = `${t('opt.flicker')}: <b>${this.save.noFlicker ? t('opt.flickerOff') : t('opt.flickerOn')}</b>`;
     this.langBtn.innerHTML = `${t('opt.language')}: <b>${langName(getLang())}</b>`;
+    this.fsBtn.innerHTML = `${t('opt.display')}: <b>${platform.isDesktop && platform.isFullscreen() ? t('opt.fullscreen') : t('opt.windowed')}</b>`;
     this.volInput.value = this.save.volume;
   }
 
@@ -183,6 +188,9 @@ export class UI {
       this.levelGrid.append(block);
     }
   }
+
+  /** Окно вошло в полный экран или вышло из него. */
+  setFullscreen() { this._syncOptions(); }
 
   setLoading(p) { this.loadP = p; this.loadBar.firstChild.style.width = `${Math.round(p * 100)}%`; this.loadPct.textContent = `${Math.round(p * 100)} %`; }
 

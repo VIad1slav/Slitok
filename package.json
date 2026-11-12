@@ -3,17 +3,28 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Golden Grab — браузерная 3D-игра от первого лица. Сборщик не нужен.",
+  "description": "Golden Grab — first-person physics heist game.",
   "scripts": {
     "start": "npx serve . -l 5173",
     "check": "node tools/check_levels.mjs",
     "assets": "node tools/export_levels.mjs",
-    "test": "node tools/test/play.mjs"
+    "test": "node tools/test/play.mjs",
+    "desktop": "electron .",
+    "desktop:release": "electron . --release",
+    "i18n": "node tools/check_i18n.mjs",
+    "vendor": "node tools/vendor.mjs",
+    "textures": "node tools/convert_textures.mjs",
+    "test:desktop": "node tools/test/desktop.mjs"
   },
   "devDependencies": {
     "cannon-es": "0.20.0",
+    "electron": "45.3.1",
+    "electron-builder": "26.18.0",
     "playwright-core": "^1.65.0",
     "sharp": "0.35.5",
     "three": "0.160.0"
-  }
+  },
+  "productName": "Golden Grab",
+  "author": "Golden Grab",
+  "main": "electron/main.js"
 }

@@ -11,6 +11,7 @@ export default {
   'menu.play': 'Play',
   'menu.heists': 'Heists',
   'menu.controls': 'Controls',
+  'menu.quit': 'Quit',
   'common.back': 'Back',
   'common.toMenu': 'Main Menu',
   'common.retry': 'Try Again',
@@ -24,6 +25,9 @@ export default {
   'opt.flickerOff': 'smooth',
   'opt.volume': 'Volume',
   'opt.language': 'Language',
+  'opt.display': 'Display',
+  'opt.fullscreen': 'fullscreen',
+  'opt.windowed': 'windowed',
 
   // --- controls
   'controls.keys': ['Mouse', 'Wheel / W S', 'LMB (hold)', 'RMB + mouse', 'Q / E', 'C', 'R', 'Esc'],

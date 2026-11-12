@@ -47,7 +47,8 @@ const server = createServer(async (req, res) => {
   } catch { res.writeHead(404); res.end('not found'); }
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const url = `http://127.0.0.1:${server.address().port}/`;
+const base = `http://127.0.0.1:${server.address().port}/`;
+const url = base + '?dev=1';   // режим разработки: без него игра не выставляет отладочный window.__gg
 
 let browser;
 for (const channel of ['chrome', 'msedge']) {
@@ -62,7 +63,7 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, loc
 const errors = [];
 // Сеть заблокирована: игра обязана грузиться только со своего сервера (библиотеки лежат в vendor/).
 const external = [];
-const offline = (somePage) => somePage.route((u) => !String(u).startsWith(url) && !/^(data|blob):/.test(String(u)), (route) => { external.push(route.request().url()); route.abort(); });
+const offline = (somePage) => somePage.route((u) => !String(u).startsWith(base) && !/^(data|blob):/.test(String(u)), (route) => { external.push(route.request().url()); route.abort(); });
 await offline(page);
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(String(e)));
@@ -529,6 +530,16 @@ const fps = await page.evaluate(() => new Promise((res) => {
 console.log(`  инфо счётчик кадров на уровне 1: ${fps.fps.toFixed(0)} кадров/с (pixelRatio ${fps.pixelRatio}, 1280×720) — шумный, не критерий`);
 await shot('level1_start');
 
+// без ?dev отладочного доступа нет
+{
+  const p4 = await browser.newPage({ viewport: { width: 640, height: 360 }, locale: 'ru-RU' });
+  await offline(p4);
+  await p4.goto(base);
+  await p4.waitForFunction(() => { const m = document.querySelector('.screen[data-name=menu]'); return m && !m.hidden; }, null, { timeout: 60000 });
+  const open = await p4.evaluate(() => ({ gg: typeof window.__gg, quit: [...document.querySelectorAll('.screen[data-name=menu] .btn')].length }));
+  check(open.gg === 'undefined', `без режима разработки (?dev) отладочного window.__gg нет (${open.gg})`);
+  await p4.close();
+}
 check(external.length === 0, `без интернета: обращений к внешним адресам ${external.length}${external.length ? ' — ' + [...new Set(external)].slice(0, 4).join(', ') : ' (сеть была заблокирована весь прогон)'}`);
 check(errors.length === 0, `консоль без ошибок${errors.length ? ': ' + errors.slice(0, 5).join(' | ') : ''}`);
 await browser.close(); server.close();

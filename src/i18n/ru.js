@@ -11,6 +11,7 @@ export default {
   'menu.play': 'Играть',
   'menu.heists': 'Ограбления',
   'menu.controls': 'Управление',
+  'menu.quit': 'Выход',
   'common.back': 'Назад',
   'common.toMenu': 'В меню',
   'common.retry': 'Ещё раз',
@@ -24,6 +25,9 @@ export default {
   'opt.flickerOff': 'плавное',
   'opt.volume': 'Громкость',
   'opt.language': 'Язык',
+  'opt.display': 'Экран',
+  'opt.fullscreen': 'полный',
+  'opt.windowed': 'в окне',
 
   // --- управление
   'controls.keys': ['Мышь', 'Колесо / W S', 'ЛКМ (держать)', 'ПКМ + мышь', 'Q / E', 'C', 'R', 'Esc'],

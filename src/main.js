@@ -19,6 +19,7 @@ import { Pedestal, createTraps } from './traps.js';
 import { AudioSys } from './audio.js';
 import { UI, loadSave, storeSave } from './ui.js';
 import { autopilotFor } from './autoplay.js';
+import { platform } from './platform.js';
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 /** Дать браузеру нарисовать кадр (полоска загрузки успевает обновиться). */
@@ -51,6 +52,8 @@ class Game {
       accessory: (id) => this.hand.setAccessory(id ? cosmeticById(id) : null, this.models),
       volume: (v) => this.audio.setVolume(v),
       language: (lang) => this.setLanguage(lang),
+      quit: () => platform.quit(),
+      fullscreen: (on) => platform.setFullscreen(on),
     }, this.save);
     this.ui.show('loading');
 
@@ -320,7 +323,14 @@ class Game {
       if (e.code === 'KeyC' && !this.stage.toggleSide()) this.toast(t('toast.sideOver'));
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => { this.keys.clear(); this.rmb = false; this.hand.setGrip(false); });
+    // Окно потеряло фокус (Alt+Tab, свернули, оверлей Steam): клавиши отпускаются, игра встаёт на паузу — физика не идёт.
+    // Автопилот (проверки) паузой не прерывается.
+    const away = () => { this.keys.clear(); this.rmb = false; this.hand.setGrip(false); if (!this.autopilot) this.pause(); };
+    window.addEventListener('blur', away);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) away(); });
+    platform.onFullscreen((on) => this.ui.setFullscreen(on));
+    // в сборке для игроков контекстного меню нет нигде
+    if (platform.isDesktop && !platform.dev) window.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   _applyKeys(dt) {
@@ -464,7 +474,7 @@ class Game {
 }
 
 const game = new Game();
-window.__gg = game; // для отладки и автотестов
+if (platform.dev) window.__gg = game;   // отладка, автопилот и автопроверки — только в режиме разработки (см. src/platform.js)
 game.init().catch((err) => {
   console.error(err);
   document.getElementById('ui').innerHTML = `<div class="screen"><div class="card"><div class="h2">${t('error.start')}</div><div class="muted">${String(err.message || err)}</div></div></div>`;
