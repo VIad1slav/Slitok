@@ -3,8 +3,7 @@
 // Локальные оси предмета: X — длина, Y — высота (вверх), Z — ширина. Начало координат — центр предмета.
 //
 // Поля типа:
-//   name        — название для игрока
-//   failFall    — причина провала, если предмет упал со стола
+//   Название и причины провала («упал со стола», «разбит») — в словарях src/i18n/ (ключи loot.<тип>.name / .fall / .broken).
 //   bounds      — габариты [X, Y, Z], м (для проверок геометрии и постановки на подставку)
 //   shapes      — форма для физики и для руки: список примитивов
 //                 { type: 'box', half: [x, y, z] } | { type: 'cylinder', radius, height } (ось Y) | { type: 'sphere', radius },
@@ -19,7 +18,7 @@
 //   dropImpact  — если задано: удар руки с предметом о стекло быстрее этого (м/с) выбивает предмет из пальцев
 //   topScale    — только для слитка: сужение верхней грани (запасная геометрия и Blender)
 //   fragile     — хрупкий предмет: { crackSpeed, breakSpeed, cracks } — удар быстрее crackSpeed (м/с) оставляет трещину,
-//                 удар быстрее breakSpeed или трещина номер cracks разбивают его; failBreak — причина провала
+//                 удар быстрее breakSpeed или трещина номер cracks разбивают его
 
 /** Сетка сфер вдоль длины предмета: rows — смещения рядов по ширине, cols — число сфер в ряду. */
 function gridSpheres(length, rows, cols, r) {
@@ -41,8 +40,6 @@ function ringSpheres(n, r, sphereR) {
 
 export const LOOT = {
   bar: {
-    name: 'Слиток',
-    failFall: 'Слиток упал со стола',
     bounds: [0.22, 0.045, 0.075],
     shapes: [{ type: 'box', half: [0.11, 0.0225, 0.0375] }],
     held: gridSpheres(0.22, [-0.0125, 0, 0.0125], 9, 0.0225),
@@ -54,8 +51,6 @@ export const LOOT = {
   },
   // Большой слиток: 26 × 5,5 × 9 см, 6 кг. Тяжёлый — выскальзывает уже при небыстром движении.
   bigbar: {
-    name: 'Большой слиток',
-    failFall: 'Большой слиток упал со стола',
     bounds: [0.26, 0.055, 0.09],
     shapes: [{ type: 'box', half: [0.13, 0.0275, 0.045] }],
     held: gridSpheres(0.26, [-0.0175, 0, 0.0175], 9, 0.0275),
@@ -69,9 +64,6 @@ export const LOOT = {
   },
   // Ваза: стоит вертикально, бьётся. Тулово ⌀8 см и горлышко ⌀4,4 см, общая высота 14 см.
   vase: {
-    name: 'Ваза',
-    failFall: 'Ваза упала со стола',
-    failBreak: 'Ваза разбита',
     bounds: [0.08, 0.14, 0.08],
     shapes: [{ type: 'cylinder', radius: 0.04, height: 0.1, pos: [0, -0.02, 0] }, { type: 'cylinder', radius: 0.022, height: 0.04, pos: [0, 0.05, 0] }],
     held: [[0, -0.03, 0, 0.04], [0, 0.0, 0, 0.04], [0, 0.05, 0, 0.023]],
@@ -83,8 +75,6 @@ export const LOOT = {
   },
   // Корона: широкое низкое кольцо ⌀15 см, высота 5 см. В узкую щель проходит только ребром.
   crown: {
-    name: 'Корона',
-    failFall: 'Корона упала со стола',
     bounds: [0.15, 0.05, 0.15],
     shapes: ringBoxes(8, 0.067, [0.027, 0.025, 0.008]),
     held: ringSpheres(8, 0.055, 0.02),
@@ -95,8 +85,6 @@ export const LOOT = {
   },
   // Стопка монет: маленький цилиндр ⌀4 см, высота 4 см.
   coins: {
-    name: 'Стопка монет',
-    failFall: 'Монеты упали со стола',
     bounds: [0.04, 0.04, 0.04],
     shapes: [{ type: 'cylinder', radius: 0.02, height: 0.04 }],
     held: [[0, 0, 0, 0.02]],
@@ -107,8 +95,6 @@ export const LOOT = {
   },
   // Фишки казино: стопка из четырёх, ⌀4,4 см, высота 2 см.
   chips: {
-    name: 'Фишки',
-    failFall: 'Фишки упали со стола',
     bounds: [0.044, 0.02, 0.044],
     shapes: [{ type: 'cylinder', radius: 0.022, height: 0.02 }],
     held: [[0, 0, 0, 0.022]],
@@ -119,8 +105,6 @@ export const LOOT = {
   },
   // Игральный кубик 3,5 см.
   dice: {
-    name: 'Кубик',
-    failFall: 'Кубик упал со стола',
     bounds: [0.035, 0.035, 0.035],
     shapes: [{ type: 'box', half: [0.0175, 0.0175, 0.0175] }],
     held: [[0, 0, 0, 0.02]],
@@ -131,8 +115,6 @@ export const LOOT = {
   },
   // Бриллиант: крошечный и скользкий. Выскальзывает уже на небольшой скорости, выпадает от удара руки о стекло.
   diamond: {
-    name: 'Бриллиант',
-    failFall: 'Бриллиант упал со стола',
     bounds: [0.03, 0.022, 0.03],
     shapes: [{ type: 'box', half: [0.014, 0.011, 0.014] }],
     held: [[0, 0, 0, 0.016]],
@@ -145,8 +127,6 @@ export const LOOT = {
   },
   // Груз для подмены на весах: стальной брусок. В сейф не идёт (role: 'prop').
   weight: {
-    name: 'Груз',
-    failFall: 'Груз упал со стола',
     bounds: [0.07, 0.06, 0.07],
     shapes: [{ type: 'box', half: [0.035, 0.03, 0.035] }],
     held: [[0, 0, 0, 0.037]],
@@ -157,6 +137,8 @@ export const LOOT = {
   },
 };
 
+for (const [id, type] of Object.entries(LOOT)) type.id = id;   // по id собирается ключ словаря
+
 /**
  * Список предметов уровня в едином виде. Старая запись уровня `bar: {...}` читается как один слиток.
  * Элемент: { type, pos: [x, y, z] (низ предмета относительно центра дна коробки), yaw (градусы), mass, friction, role }.
@@ -166,7 +148,7 @@ export function levelLoot(level) {
   const list = level.loot || (level.bar ? [{ type: 'bar', ...level.bar }] : []);
   return list.map((it) => {
     const type = LOOT[it.type];
-    if (!type) throw new Error(`Неизвестный тип добычи «${it.type}» на уровне ${level.id}`);
+    if (!type) throw new Error(`Unknown loot type "${it.type}" on level ${level.id}`);
     return { role: 'target', yaw: 0, ...it, mass: it.mass ?? type.mass, friction: it.friction ?? type.friction };
   });
 }

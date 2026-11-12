@@ -6,6 +6,7 @@
 // Что проверяется:
 //   1. ассеты из Blender загружены, консоль без ошибок;
 //   2. старое сохранение (до кампании) читается без потерь; замки ограблений считаются по звёздам;
+//      язык: по умолчанию — язык системы, переключается на ходу, английский текст не вылезает за кнопки;
 //   3. автопилот проходит все уровни кампании; время не ушло от эталона (BASELINE) больше чем на 10 %;
 //   4. общая модель добычи: уровень с двумя слитками, предметы-цилиндр и шар;
 //   5. физика: рука не проходит сквозь стекло, стекло бьётся, ловушка для обезьян держит;
@@ -54,7 +55,8 @@ for (const channel of ['chrome', 'msedge']) {
   } catch { /* пробуем следующий браузер */ }
 }
 if (!browser) { console.error('Не найден Chrome или Edge'); process.exit(2); }
-const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+// Язык системы — русский: проверки ниже сверяют русские причины провала, а заодно это проверка выбора языка по умолчанию.
+const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, locale: 'ru-RU' });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(String(e)));
@@ -78,15 +80,17 @@ check(info.report.missingModels.length === 0 && info.report.fallbackTextures.len
 
 // --- сохранение и замки
 const sv = await page.evaluate(async () => {
-  const g = window.__gg, H = await import('/src/heists.js');
+  const g = window.__gg, H = await import('/src/heists.js'), I = await import('/src/i18n/index.js');
   return {
+    lang: g.save.lang, shown: I.getLang(), title: document.querySelector('.screen[data-name=menu] .btn.primary').textContent,
     version: g.save.version, best: g.save.best, skin: g.save.skin, volume: g.save.volume, handSkin: g.hand.skin,
     stars: H.totalStars(g.save), open: H.HEISTS.map((h) => H.isHeistUnlocked(h, g.save)), thresholds: H.HEISTS.map((h) => h.unlockStars),
     next: H.continueLevel(g.save).id,
   };
 });
-check(sv.version === 2 && JSON.stringify(sv.best) === JSON.stringify(OLD_SAVE.best) && sv.skin === 'glove' && sv.handSkin === 'glove' && sv.volume === 0.4,
+check(sv.version === 3 && JSON.stringify(sv.best) === JSON.stringify(OLD_SAVE.best) && sv.skin === 'glove' && sv.handSkin === 'glove' && sv.volume === 0.4,
   `старое сохранение прочитано без потерь (версия ${sv.version}, рекордов ${Object.keys(sv.best).length}, рука «${sv.skin}», громкость ${sv.volume})`);
+check(sv.lang === null && sv.shown === 'ru' && sv.title === 'Играть', `язык по умолчанию взят из системы (ru-RU → «${sv.shown}», кнопка «${sv.title}»), в старом сохранении язык не задан`);
 check(sv.stars === 6 && sv.open.join() === 'true,false,false,false,false' && sv.next === 9,
   `замки по звёздам: звёзд ${sv.stars}, открыто ${sv.open.map((o) => (o ? 'да' : 'нет')).join('/')} при порогах ${sv.thresholds.join('/')}, «Играть» ведёт на уровень ${sv.next}`);
 
@@ -105,6 +109,57 @@ const freeze = (id, t, side = false) => page.evaluate(([lvl, sec, sideView]) => 
   if (sideView) { g.stage.sideTarget = 1; g.stage.sideBlend = 1; }
 }, [id, t, side]);
 
+// --- язык: переключение на ходу, выбор хранится в сохранении, текст не вылезает за кнопки и карточки
+// Экраны показываются по очереди на обоих языках; у каждой кнопки, карточки и подписи сверяется,
+// что содержимое не шире самого элемента (scrollWidth > clientWidth значит «текст обрезан или вылез»).
+const overflow = () => page.evaluate(async () => {
+  const g = window.__gg, bad = [];
+  const scan = (screen) => {
+    for (const e of document.querySelectorAll('.screen:not([hidden]) .btn, .screen:not([hidden]) .lvlcard, .screen:not([hidden]) .lvlcard .name, .screen:not([hidden]) .heisthead > span, .screen:not([hidden]) .card, .screen:not([hidden]) kbd, .hud .tl, .hud .hint'))
+      if (e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1) bad.push(`${screen}: «${e.textContent.trim().slice(0, 30)}» (${e.scrollWidth}×${e.scrollHeight} в ${e.clientWidth}×${e.clientHeight})`);
+    const r = document.querySelector('.screen:not([hidden]) .card')?.getBoundingClientRect();
+    if (r && (r.left < 0 || r.right > innerWidth || r.top < 0 || r.bottom > innerHeight)) bad.push(`${screen}: карточка не помещается в окно`);
+  };
+  for (const name of ['menu', 'levels', 'controls']) { g.ui.show(name); scan(name); }
+  g.startLevelById(39); scan('уровень 39'); g.pause(); scan('пауза');
+  g.resume(); g.fail('x'); g.endTimer = 0; g.endAction?.(); g.endAction = null; scan('поражение');
+  g.startLevelById(40); g.state = 'playing';
+  g.ui.showWin({ level: g.level, place: (await import('/src/heists.js')).placeOf(40), time: 754.2, touches: 12, starsCount: 1, best: { time: 754.2 }, next: { locked: true, heist: (await import('/src/heists.js')).HEISTS[4] }, record: true, stars: 61 }); scan('победа');
+  g.toMenu();
+  return bad;
+});
+const setLang = (lang) => page.evaluate((l) => window.__gg.setLanguage(l), lang);
+await setLang('en');
+const en = await page.evaluate(async () => {
+  const g = window.__gg, I = await import('/src/i18n/index.js'), H = await import('/src/heists.js');
+  const cyr = [...document.querySelectorAll('#ui *')].filter((e) => !e.children.length && /[\u0400-\u04FF]/.test(e.textContent)).map((e) => e.textContent.trim()).filter((x) => x !== 'Русский');
+  return { play: document.querySelector('.screen[data-name=menu] .btn.primary').textContent, saved: JSON.parse(localStorage.getItem('goldenGrab.v1')).lang, htmlLang: document.documentElement.lang,
+    level: I.levelName(H.levelById(3)), heist: I.heistName(H.HEISTS[0]), cyr, best: Object.keys(g.save.best).length };
+});
+check(en.play === 'Play' && en.saved === 'en' && en.htmlLang === 'en' && en.level === 'Monkey Trap' && en.best === 3, `переключение на английский: кнопка «${en.play}», уровень 3 — «${en.level}», выбор записан в сохранение, рекорды на месте (${en.best})`);
+check(en.cyr.length === 0, `в английском интерфейсе не осталось русского текста${en.cyr.length ? ': ' + en.cyr.slice(0, 5).join(' | ') : ''}`);
+const overEn = await overflow();
+check(overEn.length === 0, `английский текст помещается в кнопки и карточки${overEn.length ? ': ' + overEn.slice(0, 6).join(' | ') : ''}`);
+if (SHOTS) {
+  await shot('menu_en');
+  await page.evaluate(() => window.__gg.ui.show('levels')); await shot('heists_en');
+  await page.evaluate(() => window.__gg.ui.show('controls')); await shot('controls_en');
+  await freeze(3, 7.0); await shot('level_03_en');
+  await page.evaluate(() => window.__gg.toMenu());
+}
+await setLang('ru');
+const overRu = await overflow();
+check(overRu.length === 0, `русский текст помещается в кнопки и карточки${overRu.length ? ': ' + overRu.slice(0, 6).join(' | ') : ''}`);
+// язык системы не русский → английский
+{
+  const p2 = await browser.newPage({ viewport: { width: 1280, height: 720 }, locale: 'de-DE' });
+  await p2.goto(url);
+  await p2.waitForFunction(() => window.__gg && window.__gg.state === 'menu', null, { timeout: 60000 });
+  const d = await p2.evaluate(() => ({ play: document.querySelector('.screen[data-name=menu] .btn.primary').textContent, skin: window.__gg.save.skin, lang: window.__gg.save.lang }));
+  check(d.play === 'Play' && d.lang === null, `новый игрок с нерусской системой (de-DE) видит английский: кнопка «${d.play}»`);
+  await p2.close();
+}
+
 if (SHOTS) {
   await shot('menu');
   await page.evaluate(() => window.__gg.ui.show('levels'));
@@ -113,9 +168,9 @@ if (SHOTS) {
 
 // --- автопилот проходит все уровни кампании
 const results = await page.evaluate(async () => {
-  const g = window.__gg, H = await import('/src/heists.js');
+  const g = window.__gg, H = await import('/src/heists.js'), I = await import('/src/i18n/index.js');
   g.timeScale = 1;
-  return H.campaignOrder().map((e) => ({ ...g.autoTest(e.level.id, 400), heist: e.heist.name, number: e.number, name: e.level.name }));
+  return H.campaignOrder().map((e) => ({ ...g.autoTest(e.level.id, 400), heist: I.heistName(e.heist), number: e.number, name: I.levelName(e.level) }));
 });
 for (const r of results) {
   const base = BASELINE[r.level], drift = base ? (r.time - base) / base : null;
@@ -356,7 +411,7 @@ check(phys.drop.inside && phys.drop.y > 0.9, `брошенный слиток о
 // (режимы питания), поэтому каждый уровень сравнивается с уровнем 1 «вперемежку»: уровень, эталон, уровень,
 // эталон… — и берётся лучшее время каждого. Плюс точные числа без шума: вызовы отрисовки и треугольники.
 const perf = await page.evaluate(async () => {
-  const g = window.__gg, H = await import('/src/heists.js'), gl = g.stage.renderer.getContext(), px = new Uint8Array(4), out = [];
+  const g = window.__gg, H = await import('/src/heists.js'), I = await import('/src/i18n/index.js'), gl = g.stage.renderer.getContext(), px = new Uint8Array(4), out = [];
   const time = (n = 40) => { const a = performance.now(); for (let i = 0; i < n; i++) g.stage.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return (performance.now() - a) / n; };
   // эталон — уровень 1 в том виде, какой он имел в MVP: обстановка по умолчанию (хранилище, деревянный стол).
   // Уровень вне кампании не получает тему ограбления, поэтому берём копию уровня 1 с чужим id.
@@ -384,7 +439,7 @@ const perf = await page.evaluate(async () => {
     }
     // медиана отношений по парам «уровень — эталон»: скачок режима видеокарты портит одну-две пары, но не медиану
     pairs.sort((a, b) => a.ms / a.ref - b.ms / b.ref);
-    out.push({ id: e.level.id, name: e.level.name, calls, tris, ms: pairs[3].ms, ref: pairs[3].ref });
+    out.push({ id: e.level.id, name: I.levelName(e.level), calls, tris, ms: pairs[3].ms, ref: pairs[3].ref });
   }
   g.stage.renderer.info.autoReset = true; g.timeScale = 1; g.toMenu();
   return out;

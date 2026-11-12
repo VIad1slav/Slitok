@@ -1,19 +1,21 @@
-// HUD, меню, экраны победы/поражения, сохранение прогресса. Весь текст — на русском.
-import { STORAGE_KEY, FAIL_LINES } from './config.js';
+// HUD, меню, экраны победы/поражения, сохранение прогресса. Текста здесь нет — только ключи словарей src/i18n/.
+import { STORAGE_KEY } from './config.js';
 import { HEISTS, heistStars, isHeistUnlocked, totalStars, continueLevel, levelById } from './heists.js';
 import { cosmeticById, unlockedCosmetics } from './cosmetics.js';
-import { T } from './strings.js';
+import { t, tList, tPick, LANGS, getLang, langName, levelName, levelHint, heistName, heistTagline, cosmeticName } from './i18n/index.js';
 
 // --- сохранение (localStorage может быть недоступен — всё в try/catch) ---------
-// Версии сохранения: 1 (без поля version) — { best, skin, volume }; 2 — добавлены version и accessory.
+// Версии сохранения: 1 (без поля version) — { best, skin, volume }; 2 — добавлены version и accessory;
+// 3 — добавлен lang (язык; null — язык системы).
 // Рекорды хранятся по id уровня, а что открыто (ограбления, косметика), считается из звёзд и не хранится.
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export function migrateSave(raw) {
-  const def = { version: SAVE_VERSION, best: {}, skin: 'skin', accessory: null, noFlicker: false, volume: 0.7 };
+  const def = { version: SAVE_VERSION, best: {}, skin: 'skin', accessory: null, noFlicker: false, volume: 0.7, lang: null };
   if (!raw || typeof raw !== 'object') return def;
   const save = { ...def, ...raw, version: SAVE_VERSION };
   if (!save.best || typeof save.best !== 'object') save.best = {};
   if (cosmeticById(save.skin).id !== save.skin) save.skin = def.skin;   // неизвестный вариант руки → кожа
+  if (!LANGS.includes(save.lang)) save.lang = null;                      // неизвестный язык → язык системы
   return save;
 }
 export function loadSave() {
@@ -27,16 +29,6 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const stars = (n, max = 3) => '<span class="stars">' + Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}">★</i>`).join('') + '</span>';
 export const fmtTime = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(1).padStart(4, '0')}`; };
 
-const CONTROLS = [
-  ['Мышь', 'двигать кисть влево-вправо и вверх-вниз'],
-  ['Колесо / W S', 'вперёд и назад (вглубь коробки)'],
-  ['ЛКМ (держать)', 'сжать пальцы и схватить слиток'],
-  ['ПКМ + мышь', 'повернуть кисть влево-вправо и наклонить вверх-вниз'],
-  ['Q / E', 'скрутить запястье — поставить кисть ребром'],
-  ['C', 'вид сбоку (3 раза за уровень)'],
-  ['R', 'начать уровень заново'],
-  ['Esc', 'пауза'],
-];
 
 export class UI {
   constructor(root, handlers, save) {
@@ -46,28 +38,37 @@ export class UI {
     this.hintTimer = 0; this.toastTimer = 0;
   }
 
+  /** Построить интерфейс заново (после смены языка): тот же экран остаётся открытым. */
+  rebuild() {
+    const open = Object.entries(this.screens).find(([, sc]) => !sc.hidden)?.[0], hud = !this.hud.hidden, back = this.controlsBack;
+    this.root.innerHTML = ''; this.screens = {}; this._pips = null;
+    this._build();
+    if (open) this.show(open);
+    this.controlsBack = back; this.showHud(hud);
+  }
+
   _screen(name, cls = '') { const s = el('div', `screen ${cls}`); s.dataset.name = name; s.hidden = true; this.root.append(s); this.screens[name] = s; return s; }
   _button(text, fn, cls = '') { const b = el('button', `btn ${cls}`, text); b.addEventListener('click', (e) => { e.stopPropagation(); this.h.click?.(); fn(); }); return b; }
 
   _build() {
     // --- загрузка
     const loading = this._screen('loading');
-    loading.append(el('div', 'title small', 'GOLDEN GRAB'), this.loadBar = el('div', 'loadbar', '<i></i>'), el('div', 'muted', 'Вскрываем хранилище…'));
+    loading.append(el('div', 'title small', 'GOLDEN GRAB'), this.loadBar = el('div', 'loadbar', '<i></i>'), el('div', 'muted', t('loading.text')));
 
     // --- главное меню
     const menu = this._screen('menu');
     const card = el('div', 'card menu');
-    card.append(el('div', 'kicker', 'ограбление музея · ночь'), el('div', 'title', 'GOLDEN <b>GRAB</b>'), el('div', 'muted lead', 'Просунь руку. Возьми слиток. Не разбей стекло.'));
-    card.append(this._button('Играть', () => this.h.playId(continueLevel(this.save).id), 'primary'));
-    card.append(this._button(T.levelSelect, () => this.show('levels')));
-    card.append(this._button('Управление', () => this.show('controls')));
+    card.append(el('div', 'kicker', t('menu.kicker')), el('div', 'title', 'GOLDEN <b>GRAB</b>'), el('div', 'muted lead', t('menu.lead')));
+    card.append(this._button(t('menu.play'), () => this.h.playId(continueLevel(this.save).id), 'primary'));
+    card.append(this._button(t('menu.heists'), () => this.show('levels')));
+    card.append(this._button(t('menu.controls'), () => this.show('controls')));
     const opts = el('div', 'opts');
     this.skinBtn = this._button('', () => {   // перебор открытых вариантов руки по кругу
       const list = unlockedCosmetics('hand', totalStars(this.save)), i = list.findIndex((c) => c.id === this.save.skin);
       this.save.skin = list[(i + 1) % list.length].id;
       this._syncOptions(); this.h.skin(this.save.skin); storeSave(this.save);
     }, 'ghost');
-    const vol = el('label', 'vol', '<span>Громкость</span>');
+    const vol = el('label', 'vol', `<span>${t('opt.volume')}</span>`);
     this.volInput = el('input'); this.volInput.type = 'range'; this.volInput.min = 0; this.volInput.max = 1; this.volInput.step = 0.01;
     this.volInput.addEventListener('input', () => { this.save.volume = +this.volInput.value; this.h.volume(this.save.volume); storeSave(this.save); });
     vol.append(this.volInput);
@@ -77,48 +78,49 @@ export class UI {
       this._syncOptions(); this.h.accessory(this.save.accessory); storeSave(this.save);
     }, 'ghost');
     this.flickerBtn = this._button('', () => { this.save.noFlicker = !this.save.noFlicker; this._syncOptions(); storeSave(this.save); }, 'ghost');
-    opts.append(this.skinBtn, this.accBtn, this.flickerBtn, vol);
+    this.langBtn = this._button('', () => this.h.language(LANGS[(LANGS.indexOf(getLang()) + 1) % LANGS.length]), 'ghost');   // языки по кругу
+    opts.append(this.skinBtn, this.accBtn, this.flickerBtn, this.langBtn, vol);
     card.append(opts);
     menu.append(card);
 
     // --- уровни
     const levels = this._screen('levels');
     const lc = el('div', 'card wide');
-    lc.append(el('div', 'h2', T.levelSelect));
+    lc.append(el('div', 'h2', t('menu.heists')));
     this.levelGrid = el('div', 'heists');
-    lc.append(this.levelGrid, this._button('Назад', () => this.show('menu'), 'ghost'));
+    lc.append(this.levelGrid, this._button(t('common.back'), () => this.show('menu'), 'ghost'));
     levels.append(lc);
 
     // --- управление
     const controls = this._screen('controls');
     const cc = el('div', 'card wide');
-    cc.append(el('div', 'h2', 'Управление'));
-    cc.append(el('div', 'keys', CONTROLS.map(([k, d]) => `<div><kbd>${k}</kbd><span>${d}</span></div>`).join('')));
-    cc.append(el('div', 'muted', 'Рука тяжёлая и слегка неуклюжая — так задумано. Двигайся плавно: резкий удар оставляет трещину, три трещины — и стекло вдребезги.'));
-    cc.append(this._button('Назад', () => this.show(this.controlsBack || 'menu'), 'ghost'));
+    cc.append(el('div', 'h2', t('menu.controls')));
+    cc.append(el('div', 'keys', tList('controls.keys').map((k, i) => `<div><kbd>${k}</kbd><span>${tList('controls.texts')[i]}</span></div>`).join('')));
+    cc.append(el('div', 'muted', t('controls.note')));
+    cc.append(this._button(t('common.back'), () => this.show(this.controlsBack || 'menu'), 'ghost'));
     controls.append(cc);
 
     // --- пауза
     const pause = this._screen('pause');
     const pc = el('div', 'card');
-    pc.append(el('div', 'h2', 'Пауза'));
-    pc.append(this._button('Продолжить', () => this.h.resume(), 'primary'), this._button('Заново', () => this.h.restart()),
-      this._button('Управление', () => { this.controlsBack = 'pause'; this.show('controls'); }), this._button('В меню', () => this.h.menu(), 'ghost'));
+    pc.append(el('div', 'h2', t('pause.title')));
+    pc.append(this._button(t('pause.resume'), () => this.h.resume(), 'primary'), this._button(t('pause.restart'), () => this.h.restart()),
+      this._button(t('menu.controls'), () => { this.controlsBack = 'pause'; this.show('controls'); }), this._button(t('common.toMenu'), () => this.h.menu(), 'ghost'));
     pause.append(pc);
 
     // --- победа
     const win = this._screen('win');
     const wc = el('div', 'card');
-    wc.append(el('div', 'kicker', 'добыча в сейфе'), this.winTitle = el('div', 'h2'), this.winStars = el('div', 'bigstars'), this.winStats = el('div', 'stats'), this.winNote = el('div', 'muted'));
-    this.nextBtn = this._button('Дальше', () => this.h.next(), 'primary');
-    wc.append(this.nextBtn, this._button('Ещё раз', () => this.h.restart()), this._button('В меню', () => this.h.menu(), 'ghost'));
+    wc.append(el('div', 'kicker', t('win.kicker')), this.winTitle = el('div', 'h2'), this.winStars = el('div', 'bigstars'), this.winStats = el('div', 'stats'), this.winNote = el('div', 'muted'));
+    this.nextBtn = this._button(t('win.next'), () => this.h.next(), 'primary');
+    wc.append(this.nextBtn, this._button(t('common.retry'), () => this.h.restart()), this._button(t('common.toMenu'), () => this.h.menu(), 'ghost'));
     win.append(wc);
 
     // --- поражение
     const lose = this._screen('lose', 'red');
     const oc = el('div', 'card');
     oc.append(this.loseKicker = el('div', 'kicker'), this.loseLine = el('div', 'h2 line'));
-    oc.append(this._button('Ещё раз', () => this.h.restart(), 'primary'), this._button('В меню', () => this.h.menu(), 'ghost'));
+    oc.append(this._button(t('common.retry'), () => this.h.restart(), 'primary'), this._button(t('common.toMenu'), () => this.h.menu(), 'ghost'));
     lose.append(oc);
 
     // --- HUD
@@ -127,19 +129,19 @@ export class UI {
       <div class="tl">
         <div class="lvl"></div>
         <div class="row"><span class="timer">0:00.0</span><span class="limit"></span></div>
-        <div class="row small"><span>Касания стекла</span><b class="touches">0</b></div>
-        <div class="row small"><span>Стекло</span><span class="pips"></span></div>
+        <div class="row small"><span>${t('hud.touches')}</span><b class="touches">0</b></div>
+        <div class="row small"><span>${t('hud.glass')}</span><span class="pips"></span></div>
         <div class="row small lootrow" hidden><span class="lootlabel"></span><b class="loot"></b></div>
       </div>
       <div class="tr">
-        <div class="cam"><kbd>C</kbd> вид сбоку <b class="camuses">3</b></div>
+        <div class="cam"><kbd>C</kbd> ${t('hud.side')} <b class="camuses">3</b></div>
         <div class="meter" hidden><span class="mlabel"></span><div class="mbar"><i></i><b class="mmark" hidden></b></div></div>
       </div>
       <div class="alarm" hidden><span class="atext"></span><b class="acount"></b></div>
       <div class="toast" hidden></div>
       <div class="grab"><i></i><span></span></div>
       <div class="hint"></div>
-      <div class="clickme" hidden>Кликни, чтобы захватить мышь</div>`;
+      <div class="clickme" hidden>${t('hud.clickme')}</div>`;
     this.root.append(hud);
     const q = (s) => hud.querySelector(s);
     this.$ = { lootrow: q('.lootrow'), lootlabel: q('.lootlabel'), loot: q('.loot'), lvl: q('.lvl'), timer: q('.timer'), limit: q('.limit'), touches: q('.touches'), pips: q('.pips'), camuses: q('.camuses'), meter: q('.meter'), mlabel: q('.mlabel'), mbar: q('.mbar i'), mmark: q('.mmark'), alarm: q('.alarm'), atext: q('.atext'), acount: q('.acount'), toast: q('.toast'), grab: q('.grab'), grabText: q('.grab span'), hint: q('.hint'), clickme: q('.clickme') };
@@ -150,10 +152,11 @@ export class UI {
   }
 
   _syncOptions() {
-    this.skinBtn.innerHTML = `${T.handLabel}: <b>${cosmeticById(this.save.skin).name}</b>`;
-    this.accBtn.innerHTML = `${T.accessoryLabel}: <b>${this.save.accessory ? cosmeticById(this.save.accessory).name : T.accessoryNone}</b>`;
+    this.skinBtn.innerHTML = `${t('opt.hand')}: <b>${cosmeticName(cosmeticById(this.save.skin))}</b>`;
+    this.accBtn.innerHTML = `${t('opt.accessory')}: <b>${this.save.accessory ? cosmeticName(cosmeticById(this.save.accessory)) : t('opt.accessoryNone')}</b>`;
     this.accBtn.hidden = unlockedCosmetics('accessory', totalStars(this.save)).length === 0;   // пока ничего не открыто, кнопки нет
-    this.flickerBtn.innerHTML = `${T.flickerLabel}: <b>${this.save.noFlicker ? T.flickerOff : T.flickerOn}</b>`;
+    this.flickerBtn.innerHTML = `${t('opt.flicker')}: <b>${this.save.noFlicker ? t('opt.flickerOff') : t('opt.flickerOn')}</b>`;
+    this.langBtn.innerHTML = `${t('opt.language')}: <b>${langName(getLang())}</b>`;
     this.volInput.value = this.save.volume;
   }
 
@@ -164,12 +167,12 @@ export class UI {
     for (const heist of HEISTS) {
       const open = isHeistUnlocked(heist, this.save), st = heistStars(heist, this.save);
       const block = el('div', 'heist' + (open ? '' : ' locked'));
-      const status = !open ? T.heistLocked(heist.unlockStars, have) : heist.levels.length ? T.heistStars(st.have, st.max) : T.heistEmpty;
-      block.append(el('div', 'heisthead', `<span class="hname">${heist.name}</span><span class="htag">${heist.tagline}</span><span class="hstat">${open ? '' : '<i class="lock"></i>'}${status}</span>`));
+      const status = !open ? t('heist.locked', { need: heist.unlockStars, have }) : heist.levels.length ? t('heist.stars', st) : t('heist.empty');
+      block.append(el('div', 'heisthead', `<span class="hname">${heistName(heist)}</span><span class="htag">${heistTagline(heist)}</span><span class="hstat">${open ? '' : '<i class="lock"></i>'}${status}</span>`));
       const grid = el('div', 'grid');
       heist.levels.forEach((id, i) => {
         const l = levelById(id), best = this.save.best[id];
-        const b = el('button', 'lvlcard' + (best ? ' done' : ''), `<span class="num">${i + 1}</span><span class="name">${l.name}</span>${stars(best?.stars || 0)}<span class="best">${best ? fmtTime(best.time) : '—'}</span>`);
+        const b = el('button', 'lvlcard' + (best ? ' done' : ''), `<span class="num">${i + 1}</span><span class="name">${levelName(l)}</span>${stars(best?.stars || 0)}<span class="best">${best ? fmtTime(best.time) : '—'}</span>`);
         b.disabled = !open;
         b.addEventListener('click', () => { this.h.click?.(); this.h.playId(id); });
         grid.append(b);
@@ -191,9 +194,9 @@ export class UI {
 
   /** @param place место уровня в кампании ({ heist, number }) или null для уровня вне кампании */
   startLevel(level, place) {
-    this.$.lvl.textContent = (place ? T.hudLevel(place.heist.name, place.number, level.name) : T.hudLevelPlain(level.id, level.name)) + (level.stageCount ? ` · ${T.stageLabel(level.stage, level.stageCount)}` : '');
-    this.$.lootlabel.textContent = T.hudLoot;
-    this.$.hint.textContent = level.hint; this.$.hint.classList.remove('gone');
+    this.$.lvl.textContent = (place ? t('hud.level', { heist: heistName(place.heist), number: place.number, name: levelName(level) }) : t('hud.levelPlain', { id: level.id, name: levelName(level) })) + (level.stageCount ? ` · ${t('hud.stage', { i: level.stage, n: level.stageCount })}` : '');
+    this.$.lootlabel.textContent = t('hud.loot');
+    this.$.hint.textContent = levelHint(level); this.$.hint.classList.remove('gone');
     this.hintTimer = 10;
     this.$.limit.textContent = level.timeLimit ? ` / ${fmtTime(level.timeLimit)}` : '';
     this.$.toast.hidden = true; this.$.alarm.hidden = true; this.$.meter.hidden = true;
@@ -224,7 +227,7 @@ export class UI {
     if (s.alarm) { this.$.atext.textContent = s.alarm.text; this.$.acount.textContent = s.alarm.hideCount ? '' : s.alarm.left.toFixed(1); }
     this.vignette.classList.toggle('alarm', !!s.alarm);
     this.$.grab.className = 'grab' + (s.holding ? ' hold' : s.grabReady ? ' ready' : '');
-    this.$.grabText.textContent = s.holding ? 'держу' : s.grabReady ? 'ЛКМ — схватить' : '';
+    this.$.grabText.textContent = s.holding ? t('hud.holding') : s.grabReady ? t('hud.grabReady') : '';
     this.$.clickme.hidden = !s.needLock;
     if (this.hintTimer > 0) { this.hintTimer -= dt; if (this.hintTimer <= 0) this.$.hint.classList.add('gone'); }
     if (this.toastTimer > 0) { this.toastTimer -= dt; if (this.toastTimer <= 0) this.$.toast.hidden = true; }
@@ -232,11 +235,11 @@ export class UI {
 
   /** next — следующий уровень кампании ({ heist, locked }) или null; stars — сумма звёзд игрока. */
   showWin({ level, place, time, touches, starsCount, best, next, record, stars: have }) {
-    this.winTitle.textContent = place ? T.winTitle(place.heist.name, place.number) : `Уровень ${level.id} пройден`;
+    this.winTitle.textContent = place ? t('win.title', { heist: heistName(place.heist), number: place.number }) : t('win.titlePlain', { id: level.id });
     this.winStars.innerHTML = stars(starsCount);
-    this.winStats.innerHTML = `<div><span>Время</span><b>${fmtTime(time)}</b></div><div><span>Касания стекла</span><b>${touches}</b></div><div><span>Лучший результат</span><b>${fmtTime(best.time)} ${record ? '· рекорд!' : ''}</b></div>`;
+    this.winStats.innerHTML = `<div><span>${t('win.time')}</span><b>${fmtTime(time)}</b></div><div><span>${t('hud.touches')}</span><b>${touches}</b></div><div><span>${t('win.best')}</span><b>${fmtTime(best.time)} ${record ? '· ' + t('win.record') : ''}</b></div>`;
     this.nextBtn.hidden = !next || next.locked;
-    this.winNote.textContent = !next ? T.campaignDone : next.locked ? T.nextLocked(next.heist.name, next.heist.unlockStars, have) : '';
+    this.winNote.textContent = !next ? t('win.campaignDone') : next.locked ? t('win.nextLocked', { heist: heistName(next.heist), need: next.heist.unlockStars, have }) : '';
     this.winNote.hidden = !this.winNote.textContent;
     this._syncOptions();
     this.show('win');
@@ -247,7 +250,7 @@ export class UI {
 
   showLose(reason) {
     this.loseKicker.textContent = reason;
-    this.loseLine.textContent = FAIL_LINES[Math.floor(Math.random() * FAIL_LINES.length)];
+    this.loseLine.textContent = tPick('fail.lines');
     this.show('lose');
   }
 }

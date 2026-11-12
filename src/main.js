@@ -11,7 +11,7 @@ import { Loot } from './loot.js';
 import { levelLoot, lootNeeded } from './loot-types.js';
 import { nextAfter, placeOf, levelById, totalStars } from './heists.js';
 import { cosmeticById, unlockedCosmetics } from './cosmetics.js';
-import { T } from './strings.js';
+import { t, setLang, lootName, lootFall, lootBroken } from './i18n/index.js';
 import { spawnShards } from './shards.js';
 import { Hand } from './hand.js';
 import { Pedestal, createTraps } from './traps.js';
@@ -31,6 +31,7 @@ class Game {
     this.hud = { meter: null };
     this.fps = 60; this._fpsAcc = 0; this._fpsFrames = 0; this._lowFpsTime = 0;
     this.save = loadSave();
+    setLang(this.save.lang);            // null — язык системы
     this.audio = new AudioSys();
     this.audio.volume = this.save.volume;
   }
@@ -46,13 +47,14 @@ class Game {
       skin: (id) => this.hand.setSkin(cosmeticById(id)),
       accessory: (id) => this.hand.setAccessory(id ? cosmeticById(id) : null, this.models),
       volume: (v) => this.audio.setVolume(v),
+      language: (lang) => this.setLanguage(lang),
     }, this.save);
     this.ui.show('loading');
 
     const [{ models, missing }, mats] = await Promise.all([loadModels((p) => this.ui.setLoading(p * 0.7)), createMaterials()]);
     this.models = models; this.M = mats.M;
     this.assetReport = { missingModels: missing, fallbackTextures: mats.fallbacks };
-    if (missing.length || mats.fallbacks.length) console.info('[Golden Grab] запасные ассеты:', this.assetReport);
+    if (missing.length || mats.fallbacks.length) console.info('[Golden Grab] fallback assets:', this.assetReport);
     this.ui.setLoading(0.9);
 
     this.stage = new Stage(document.getElementById('c'), this.M, models);
@@ -155,8 +157,15 @@ class Game {
     const auto = this.autoOn, scale = this.timeScale;
     this.audio.bank();
     this.startLevelDef(this.levelDef, this.stageIndex + 1, { time: this.time, touches: this.touches });
-    this.ui.fade(); this.toast(T.stageDone(this.stageIndex + 1, n));
+    this.ui.fade(); this.toast(t('toast.stage', { i: this.stageIndex + 1, n }));
     if (auto) { this.autopilot = autopilotFor(this); this.autoOn = true; this.timeScale = scale; }
+  }
+
+  /** Сменить язык: тексты интерфейса строятся заново, уровень и его состояние не трогаются. */
+  setLanguage(lang) {
+    this.save.lang = setLang(lang); storeSave(this.save);
+    this.ui.rebuild();
+    if (this.state === 'paused') this.ui.startLevel(this.level, placeOf(this.level.id));
   }
 
   toMenu() {
@@ -185,7 +194,7 @@ class Game {
 
   /** Тревога: сирена, красный свет и обратный отсчёт до провала. */
   /** failReason — что написать на экране поражения, если отсчёт дойдёт до нуля. */
-  alarm(seconds, text, hideCount = false, failReason = T.alarmFail) {
+  alarm(seconds, text, hideCount = false, failReason = t('fail.alarm')) {
     if (this.alarmState || this.state !== 'playing') return;
     this.alarmState = { left: seconds, text, hideCount, failReason };
     this.stage.setAlarm(true);
@@ -233,7 +242,7 @@ class Game {
       if (broken) {
         this.audio.glassBreak();
         this._refreshStatics();
-        this.fail('Стекло разбито');
+        this.fail(t('fail.glass'));
       }
     }
   }
@@ -241,12 +250,12 @@ class Game {
   /** Удар по хрупкой добыче: трещина или вдребезги. */
   _fragileHit(item, speed) {
     const r = item.hit(speed, this.time, this.M.cracks[1]);
-    if (r === 'crack') { this.audio.glassCrack(); this.toast(T.cracked(item.type.name)); }
+    if (r === 'crack') { this.audio.glassCrack(); this.toast(t('toast.cracked', { name: lootName(item.type) })); }
     else if (r === 'break') {
       if (this.hand.item === item) this.hand.release('open');
       this.audio.glassBreak();
       this.shards.push(spawnShards(this.stage.scene, item.position(), item.type.bounds, item.material.color));
-      this.fail(item.type.failBreak);
+      this.fail(lootBroken(item.type));
     }
   }
 
@@ -298,7 +307,7 @@ class Game {
       if (e.code === 'Escape') { if (this.state === 'playing') this.pause(); else if (this.state === 'paused') this.resume(); }
       if (this.state !== 'playing') return;
       if (e.code === 'KeyR') this.restartLevel();
-      if (e.code === 'KeyC' && !this.stage.toggleSide()) this.toast('Вид сбоку закончился');
+      if (e.code === 'KeyC' && !this.stage.toggleSide()) this.toast(t('toast.sideOver'));
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => { this.keys.clear(); this.rmb = false; this.hand.setGrip(false); });
@@ -335,7 +344,7 @@ class Game {
         else if (ev.byBar && ev.impact > 0.35) this.audio.thud(clamp(ev.impact / 2, 0, 1));
         if (ev.byBar && this.hand.item) this._fragileHit(this.hand.item, ev.impact);   // хрупкий предмет в руке ударился о стекло или стол
       } else if (ev.type === 'grab') this.audio.grab();
-      else if (ev.type === 'release' && ev.reason === 'slip') this.toast(T.slipped);
+      else if (ev.type === 'release' && ev.reason === 'slip') this.toast(t('toast.slipped'));
     }
     this.hand.events.length = 0;
     if (!playing) return;
@@ -343,13 +352,13 @@ class Game {
     const ctx = { game: this, hand: this.hand, items: this.items, audio: this.audio, time: this.time };
     for (const t of this.traps) t.step(dt, ctx);
     // полоска «хват» для скользкой добычи: насколько скорость кисти близка к той, на которой предмет выскользнет
-    if (!this.hud.meter && this.hand.item?.type.slipSpeed) this.hud.meter = { label: T.gripMeter, value: this.hand.vel.length() / this.hand.slipSpeed };
+    if (!this.hud.meter && this.hand.item?.type.slipSpeed) this.hud.meter = { label: t('meter.grip'), value: this.hand.vel.length() / this.hand.slipSpeed };
 
     if (this.alarmState) {
       this.alarmState.left -= dt;
       if (this.alarmState.left <= 0) return this.fail(this.alarmState.failReason);
     }
-    if (this.level.timeLimit && this.time > this.level.timeLimit) return this.fail('Время вышло');
+    if (this.level.timeLimit && this.time > this.level.timeLimit) return this.fail(t('fail.time'));
 
     // добыча: предмет полежал в «сейфе» без руки — засчитан; вся нужная добыча в сейфе — победа
     const s = this.level.safe;
@@ -358,8 +367,8 @@ class Game {
       if (it.banked) continue;
       const p = it.body.position;
       if (p.y < WORLD.tableY - 0.2) {
-        if (it.role === 'target') return this.fail(it.type.failFall);
-        it.bank(); this.toast(T.propLost);
+        if (it.role === 'target') return this.fail(lootFall(it.type));
+        it.bank(); this.toast(t('toast.propLost'));
         continue;
       }
       if (it.role !== 'target') continue;
@@ -371,7 +380,7 @@ class Game {
           this.lootDone++;
           if (this.lootDone >= this.lootNeed) return this._stageDone();
           it.bank(); this.stage.flashSafe(); this.audio.bank();
-          this.toast(T.itemBanked(this.lootDone, this.lootNeed));
+          this.toast(t('toast.banked', { done: this.lootDone, total: this.lootNeed }));
         }
       } else it.zoneTime = 0;
     }
@@ -448,5 +457,5 @@ const game = new Game();
 window.__gg = game; // для отладки и автотестов
 game.init().catch((err) => {
   console.error(err);
-  document.getElementById('ui').innerHTML = `<div class="screen"><div class="card"><div class="h2">Не удалось запустить игру</div><div class="muted">${String(err.message || err)}</div></div></div>`;
+  document.getElementById('ui').innerHTML = `<div class="screen"><div class="card"><div class="h2">${t('error.start')}</div><div class="muted">${String(err.message || err)}</div></div></div>`;
 });

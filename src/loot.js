@@ -98,7 +98,7 @@ export class Loot {
       } else if (s.type === 'sphere') {
         shape = new CANNON.Sphere(s.radius);
         prim = { type: 'sphere', r: s.radius };
-      } else throw new Error('Неизвестный примитив ' + s.type);
+      } else throw new Error('Unknown primitive ' + s.type);
       this.body.addShape(shape, new CANNON.Vec3(lp.x, lp.y, lp.z), new CANNON.Quaternion(lq.x, lq.y, lq.z, lq.w));
       Object.assign(prim, { kind: 'bar', lp, lq, c: new THREE.Vector3(), q: new THREE.Quaternion(), qi: new THREE.Quaternion() });
       this.prims.push(prim);

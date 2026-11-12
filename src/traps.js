@@ -9,7 +9,7 @@ import * as CANNON from 'cannon-es';
 import { WORLD } from './config.js';
 import { GROUP, wallFrame, holeExtents } from './box.js';
 import { GLASS } from './config.js';
-import { T } from './strings.js';
+import { t as say } from './i18n/index.js';   // под именем say: в этом файле t — параметр вдоль луча и время
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 const _m4 = new THREE.Matrix4(), _up = new THREE.Vector3(0, 1, 0);
@@ -76,11 +76,11 @@ class PlateTrap {
       if (this.peak > this.def.maxLiftSpeed) {
         this.state = 'tripped';
         ctx.audio.click();
-        ctx.game.alarm(this.def.alarmSeconds, 'Датчик веса сработал!');
+        ctx.game.alarm(this.def.alarmSeconds, say('trap.plateAlarm'));
       } else {
         this.state = 'safe';
         ctx.audio.click();
-        ctx.game.toast('Датчик обманут. Чистая работа.');
+        ctx.game.toast(say('trap.plateOk'));
       }
     }
   }
@@ -130,7 +130,7 @@ class LaserTrap {
       if (hit) {
         this.tripped = true;
         ctx.audio.zap();
-        ctx.game.alarm(this.def.failDelay, 'Лазер задет!', true);
+        ctx.game.alarm(this.def.failDelay, say('trap.laserAlarm'), true);
       }
     }
   }
@@ -163,10 +163,10 @@ class HotTrap {
       if (this.heat >= 1) {
         ctx.hand.release('hot', this.def.cooldown);
         ctx.audio.sizzle();
-        ctx.game.toast('Ай! Горячо!');
+        ctx.game.toast(say('trap.hot'));
       }
     } else this.heat = Math.max(0, this.heat - dt / (this.def.cooldown * 0.9));
-    ctx.game.hud.meter = { label: 'ЖАР', value: this.heat };
+    ctx.game.hud.meter = { label: say('meter.heat'), value: this.heat };
   }
   update(time) { this.env.item.setGlow(0.5 + 0.2 * Math.sin(time * 5) + this.heat * 0.6); }
   dispose() { this.env.item.setGlow(0); this.env.item.glowOwner = null; }
@@ -286,8 +286,8 @@ class CameraTrap {
   step(dt, ctx) {
     const changed = this._phase(ctx.time), d = this.def, h = ctx.hand;
     if (changed && !this.tripped) {
-      if (this.state === 'warn') { ctx.audio.beep(660, 0.12, 0.09); ctx.audio.beep(880, 0.12, 0.09, 0.25); ctx.audio.beep(1100, 0.14, 0.12, 0.5); ctx.game.toast(T.cameraWarn); }
-      else if (this.state === 'watch') { ctx.audio.beep(110, 0.3, 0.5, 0, 'sawtooth'); ctx.game.toast(T.cameraWatch); }
+      if (this.state === 'warn') { ctx.audio.beep(660, 0.12, 0.09); ctx.audio.beep(880, 0.12, 0.09, 0.25); ctx.audio.beep(1100, 0.14, 0.12, 0.5); ctx.game.toast(say('trap.cameraWarn')); }
+      else if (this.state === 'watch') { ctx.audio.beep(110, 0.3, 0.5, 0, 'sawtooth'); ctx.game.toast(say('trap.cameraWatch')); }
       else ctx.audio.beep(520, 0.08, 0.06);
     }
     // угловая скорость кисти
@@ -298,9 +298,9 @@ class CameraTrap {
     if (this.state === 'watch' && !this.tripped && (!this.zone || this.zone.inside)) {
       const move = Math.max(0, h.vel.length() - d.speedLimit) / (0.25 - d.speedLimit) + Math.max(0, rot - d.rotLimit) / 1.5;
       this.meter = move > 0 ? this.meter + (Math.min(move, 3) * dt) / d.fillTime : Math.max(0, this.meter - dt * 1.5);
-      if (this.meter >= 1) { this.tripped = true; ctx.game.alarm(d.failDelay, T.cameraFail, true, T.cameraFail); }
+      if (this.meter >= 1) { this.tripped = true; ctx.game.alarm(d.failDelay, say('fail.camera'), true, say('fail.camera')); }
     } else if (!this.tripped) this.meter = Math.max(0, this.meter - dt * 1.5);
-    if ((this.state === 'watch' && (!this.zone || this.zone.inside)) || this.meter > 0) ctx.game.hud.meter = { label: T.cameraMeter, value: this.meter };
+    if ((this.state === 'watch' && (!this.zone || this.zone.inside)) || this.meter > 0) ctx.game.hud.meter = { label: say('meter.seen'), value: this.meter };
   }
   /** Автопилоту: замереть, пока камера поворачивается или смотрит. */
   autoHold(hand) {
@@ -398,7 +398,7 @@ class ShutterTrap {
     else if (t < d.open + d.warn) { this.state = 'warn'; this.left = 0; want = 0; }
     else { this.state = t < d.open + d.warn + d.closing ? 'closing' : 'closed'; this.left = 0; want = 1; }
     if (prev !== this.state) {
-      if (this.state === 'warn') { ctx.audio.beep(900, 0.1, 0.05); ctx.audio.beep(900, 0.1, 0.05, 0.2); ctx.audio.beep(900, 0.1, 0.05, 0.4); ctx.game.toast(T.shutterWarn); }
+      if (this.state === 'warn') { ctx.audio.beep(900, 0.1, 0.05); ctx.audio.beep(900, 0.1, 0.05, 0.2); ctx.audio.beep(900, 0.1, 0.05, 0.4); ctx.game.toast(say('trap.shutterWarn')); }
       else if (this.state === 'closed' && this.k > 0.98) ctx.audio.thud(0.6);
       else if (this.state === 'open') ctx.audio.click();
     }
@@ -408,7 +408,7 @@ class ShutterTrap {
       this._try.c.copy(this.closedPos).addScaledVector(this.u, this.travel * (1 - next));
       if (ctx.hand.touches(this._try, 0.002)) {
         this.blocked += dt;
-        if (this.blocked > 0.3 && !this.tripped) { this.tripped = true; ctx.game.alarm(d.alarmSeconds, T.shutterAlarm, false, T.shutterFail); }
+        if (this.blocked > 0.3 && !this.tripped) { this.tripped = true; ctx.game.alarm(d.alarmSeconds, say('trap.shutterAlarm'), false, say('fail.shutter')); }
         return;
       }
     }
@@ -454,9 +454,9 @@ class ScaleTrap {
     const d = this.def;
     if (ctx.time > 0.5 && weight < d.min && !this.tripped) {
       this.low += dt;
-      if (this.low > d.grace) { this.tripped = true; ctx.audio.click(); ctx.game.alarm(d.alarmSeconds, T.scaleAlarm, false, T.scaleFail); }
+      if (this.low > d.grace) { this.tripped = true; ctx.audio.click(); ctx.game.alarm(d.alarmSeconds, say('trap.scaleAlarm'), false, say('fail.scale')); }
     } else this.low = 0;
-    ctx.game.hud.meter = { label: T.scaleMeter, value: Math.min(1, weight / (d.min * 2)), mark: 0.5, good: weight >= d.min };
+    ctx.game.hud.meter = { label: say('meter.weight'), value: Math.min(1, weight / (d.min * 2)), mark: 0.5, good: weight >= d.min };
   }
   update(time) {
     const ok = this.weight >= this.def.min;
@@ -487,7 +487,7 @@ class BlackoutTrap {
       this.k = ctx.game.save.noFlicker ? u * 0.6 : (Math.floor((t - d.on) * 6) % 2 ? 0.75 : 0.2);
     } else { this.state = 'dark'; this.k = 1; }
     if (prev !== this.state) {
-      if (this.state === 'warn') { ctx.audio.crackle(); ctx.game.toast(T.darkWarn); }
+      if (this.state === 'warn') { ctx.audio.crackle(); ctx.game.toast(say('trap.darkWarn')); }
       else if (this.state === 'dark') ctx.audio.beep(70, 0.25, 0.35, 0, 'sine');
       else ctx.audio.click();
     }

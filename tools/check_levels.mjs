@@ -4,6 +4,7 @@
 //   node tools/check_levels.mjs
 // Этапы многоэтапного уровня проверяются как отдельные уровни. Каждый предмет добычи проверяется
 // против своего отверстия (поле via у предмета, по умолчанию — первое отверстие коробки).
+import { levelName, levelHint, heistName, lootName } from '../src/i18n/index.js';
 import { LEVELS, playable } from '../src/levels.js';
 import { HAND_GEOM as G, WORLD } from '../src/config.js';
 import { LOOT, levelLoot } from '../src/loot-types.js';
@@ -24,7 +25,7 @@ let failed = 0;
 for (const lvl of playable()) {
   const problems = [], notes = [];
   const [w, h, d] = lvl.box.size;
-  const label = lvl.stage ? `уровень ${lvl.id}, этап ${lvl.stage} «${lvl.name}»` : `уровень ${lvl.id} «${lvl.name}»`;
+  const label = lvl.stage ? `уровень ${lvl.id}, этап ${lvl.stage} «${levelName(lvl)}»` : `уровень ${lvl.id} «${levelName(lvl)}»`;
 
   // --- отверстия: в пределах стенки, рука пролезает
   lvl.box.holes.forEach((hole, i) => {
@@ -45,25 +46,25 @@ for (const lvl of playable()) {
     const size = circle ? '⌀' + (2 * a).toFixed(3) : (2 * a).toFixed(2) + '×' + (2 * b).toFixed(2);
     if (hole.wall === 'top') {
       // сверху предмет вынимается «клешнёй», поперёк предплечья
-      if (2 * a < itemL + 0.03 || 2 * b < itemW + 0.06) problems.push(`${type.name}: не проходит в верхнее отверстие`);
-      if (!seen.has(key)) notes.push(`${type.name} — сверху ${size}`);
+      if (2 * a < itemL + 0.03 || 2 * b < itemW + 0.06) problems.push(`${lootName(type)}: не проходит в верхнее отверстие`);
+      if (!seen.has(key)) notes.push(`${lootName(type)} — сверху ${size}`);
     } else {
       // сбоку предмет вынимается вдоль предплечья, под ладонью
       if (lvl.blocked === 'flat') {
         // предмет должен проходить только ребром (кисть повёрнута на 90°): плашмя — нет, ребром — да
-        if (2 * a >= stackW + MARGIN) problems.push(`${type.name}: ловушка не работает, проходит плашмя`);
+        if (2 * a >= stackW + MARGIN) problems.push(`${lootName(type)}: ловушка не работает, проходит плашмя`);
         const edgeW = 2 * palmTop + itemH, edgeH = Math.max(itemL, palmW);
-        if (2 * a < edgeW + MARGIN || 2 * b < edgeH + MARGIN) problems.push(`${type.name}: ребром (${edgeW.toFixed(3)}×${edgeH.toFixed(3)}) не проходит`);
+        if (2 * a < edgeW + MARGIN || 2 * b < edgeH + MARGIN) problems.push(`${lootName(type)}: ребром (${edgeW.toFixed(3)}×${edgeH.toFixed(3)}) не проходит`);
       } else {
         const fits = circle ? 2 * a >= Math.hypot(stackW, stackH) + MARGIN : 2 * a >= stackW + MARGIN && 2 * b >= stackH + MARGIN;
-        if (!fits) problems.push(`${type.name}: кулак с предметом (${stackW.toFixed(3)}×${stackH.toFixed(3)}) не проходит`);
+        if (!fits) problems.push(`${lootName(type)}: кулак с предметом (${stackW.toFixed(3)}×${stackH.toFixed(3)}) не проходит`);
       }
-      if (lvl.monkey && 2 * a >= itemL + MARGIN) problems.push(`${type.name}: ловушка для обезьян не работает, проходит поперёк`);
+      if (lvl.monkey && 2 * a >= itemL + MARGIN) problems.push(`${lootName(type)}: ловушка для обезьян не работает, проходит поперёк`);
       // досягаемость: расстояние от плоскости отверстия до центра предмета
       const [bx, , bz] = item.pos;
       const depth = hole.wall === 'right' ? w / 2 - bx : hole.wall === 'left' ? w / 2 + bx : hole.wall === 'front' ? d / 2 - bz : d / 2 + bz;
-      if (depth > reach) problems.push(`${type.name}: слишком глубоко, ${depth.toFixed(3)} > ${reach.toFixed(3)}`);
-      if (!seen.has(key)) notes.push(`${type.name} — ${hole.wall} ${size}, глубина ${depth.toFixed(2)}${lvl.monkey ? ', поперёк не лезет' : ''}${lvl.blocked === 'flat' ? ', только ребром' : ''}`);
+      if (depth > reach) problems.push(`${lootName(type)}: слишком глубоко, ${depth.toFixed(3)} > ${reach.toFixed(3)}`);
+      if (!seen.has(key)) notes.push(`${lootName(type)} — ${hole.wall} ${size}, глубина ${depth.toFixed(2)}${lvl.monkey ? ', поперёк не лезет' : ''}${lvl.blocked === 'flat' ? ', только ребром' : ''}`);
       void ov;
     }
     seen.add(key);
@@ -88,7 +89,7 @@ for (const lvl of playable()) {
   if (Math.abs(sx - lvl.box.pos[0]) < w / 2 + r && Math.abs(sz - lvl.box.pos[1]) < d / 2 + r) problems.push('«сейф» пересекается с коробкой');
   if (lvl.stars.three.time > lvl.stars.two.time) problems.push('условия звёзд перепутаны');
   if (lvl.timeLimit && lvl.stars.two.time > lvl.timeLimit) problems.push('две звезды недостижимы: порог больше лимита времени');
-  if (!lvl.hint) problems.push('нет подсказки');
+  if (levelHint(lvl).startsWith('level.')) problems.push('нет подсказки');
 
   if (problems.length) failed++;
   console.log(`${problems.length ? ' FAIL ' : '  ok  '} ${label}: ${problems.length ? problems.join('; ') : notes.join('; ')}`);
@@ -100,6 +101,6 @@ const dup = ids.filter((id, i) => ids.indexOf(id) !== i), twice = placed.filter(
 const lost = ids.filter((id) => !placed.includes(id)), ghost = placed.filter((id) => !ids.includes(id));
 const campaignProblems = [dup.length && `повторяются id ${dup}`, twice.length && `уровни ${twice} стоят в двух ограблениях`, lost.length && `уровни ${lost} не входят ни в одно ограбление`, ghost.length && `в ограблениях есть несуществующие уровни ${ghost}`].filter(Boolean);
 if (campaignProblems.length) failed++;
-console.log(`${campaignProblems.length ? ' FAIL ' : '  ok  '} кампания: ${campaignProblems.length ? campaignProblems.join('; ') : `${campaignOrder().length} уровней в ${HEISTS.filter((h) => h.levels.length).length} ограблениях: ${HEISTS.map((h) => `${h.name} ${h.levels.length}`).join(', ')}`}`);
+console.log(`${campaignProblems.length ? ' FAIL ' : '  ok  '} кампания: ${campaignProblems.length ? campaignProblems.join('; ') : `${campaignOrder().length} уровней в ${HEISTS.filter((h) => h.levels.length).length} ограблениях: ${HEISTS.map((h) => `${heistName(h)} ${h.levels.length}`).join(', ')}`}`);
 console.log(`\nРука: ладонь ${palmW.toFixed(3)} м, предплечье ⌀${forearmD.toFixed(3)} м, досягаемость за стенку ${reach.toFixed(3)} м`);
 process.exit(failed ? 1 : 0);

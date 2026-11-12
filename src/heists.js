@@ -1,6 +1,7 @@
 // Кампания: ограбления и порядок уровней в них — только данные и простые подсчёты
 // (без three.js: файл читают и проверки в Node).
 //
+// Названия и подписи ограблений — в словарях src/i18n/ (ключи heist.<id>.name и heist.<id>.tagline).
 // levels      — id уровней из src/levels.js в порядке прохождения. Рекорды хранятся по id,
 //               поэтому уровень можно переставить в другое ограбление, не потеряв сохранения.
 // unlockStars — сколько звёзд всего (по всем ограблениям) нужно, чтобы открыть это ограбление.
@@ -11,27 +12,27 @@ export const STARS_PER_LEVEL = 3;
 
 export const HEISTS = [
   {
-    id: 'pawnshop', name: 'Ломбард', tagline: 'Обучение: слиток и первые ловушки', unlockStars: 0, levels: [1, 2, 9, 3, 4, 10, 7, 11],
+    id: 'pawnshop', unlockStars: 0, levels: [1, 2, 9, 3, 4, 10, 7, 11],
     // тёплая лампа, желтоватый полумрак, деревянный стол, стеллажи с вещами
     theme: { spotColor: 0xffdca6, fillSky: 0x6f7a4c, fillIntensity: 0.4, rimColor: 0xffa040, rimIntensity: 3, tint: { concrete: [1.15, 1.05, 0.82] }, table: 'wood', set: 'pawnshop' },
   },
   {
-    id: 'museum', name: 'Музей', tagline: 'Лазеры, камера, хрупкая ваза, корона', unlockStars: 12, levels: [12, 5, 13, 14, 15, 16, 17, 18],
+    id: 'museum', unlockStars: 12, levels: [12, 5, 13, 14, 15, 16, 17, 18],
     // холодный белый луч и синие тени, светлые стены, каменный стол
     theme: { spotColor: 0xe6eeff, spotIntensity: 12, fillSky: 0x5a7ad0, fillIntensity: 0.5, rimColor: 0x8fb0ff, rimIntensity: 2.5, fog: 0x05070c, tint: { concrete: [1.5, 1.6, 1.9], tiles: [1, 1.02, 1.12] }, table: 'stone', set: 'museum' },
   },
   {
-    id: 'bank', name: 'Банк', tagline: 'Перегородки, заслонка, весы', unlockStars: 26, levels: [19, 20, 21, 22, 23, 24, 25, 26],
+    id: 'bank', unlockStars: 26, levels: [19, 20, 21, 22, 23, 24, 25, 26],
     // нейтральный белый свет, сталь: дверь хранилища, ячейки, стальной стол
     theme: { spotColor: 0xf4f6ff, fillSky: 0x7088a8, fillIntensity: 0.42, rimColor: 0xa8c0ff, rimIntensity: 2.5, table: 'steelTable', set: 'bank' },
   },
   {
-    id: 'casino', name: 'Казино', tagline: 'Карусель, темнота, скользкая добыча', unlockStars: 43, levels: [27, 6, 28, 8, 29, 30, 31, 32],
+    id: 'casino', unlockStars: 43, levels: [27, 6, 28, 8, 29, 30, 31, 32],
     // пурпур и изумруд, неон, зелёное сукно
     theme: { spotColor: 0xffe0f4, fillSky: 0x1f9a70, fillGround: 0x14061a, fillIntensity: 0.5, rimColor: 0xff46c0, rimIntensity: 3.5, fog: 0x08040c, tint: { concrete: [0.75, 0.55, 1.0], tiles: [0.9, 0.8, 1.1] }, table: 'felt', set: 'casino' },
   },
   {
-    id: 'boss', name: 'Сейф босса', tagline: 'Всё вместе и финал в три этапа', unlockStars: 62, levels: [33, 34, 35, 36, 37, 38, 39, 40],
+    id: 'boss', unlockStars: 62, levels: [33, 34, 35, 36, 37, 38, 39, 40],
     // красное золото и глубокая тень, тёмный стол, дверь сейфа вплотную
     theme: { spotColor: 0xffd49a, fillSky: 0x7a2418, fillGround: 0x0a0406, fillIntensity: 0.45, rimColor: 0xffb030, rimIntensity: 4, fog: 0x0a0405, tint: { concrete: [1.05, 0.62, 0.55], tiles: [1.1, 0.85, 0.8], wood: [0.32, 0.22, 0.2] }, table: 'wood', set: 'boss' },   // стол — то же дерево, затемнённое почти до чёрного (отдельный лаковый материал стоил 5 % кадра)
   },
