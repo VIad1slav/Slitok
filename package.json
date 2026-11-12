@@ -11,6 +11,8 @@
     "test": "node tools/test/play.mjs"
   },
   "devDependencies": {
-    "playwright-core": "^1.65.0"
+    "cannon-es": "0.20.0",
+    "playwright-core": "^1.65.0",
+    "three": "0.160.0"
   }
 }

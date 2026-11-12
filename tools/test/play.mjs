@@ -4,7 +4,8 @@
 // Свой статический сервер поднимается на случайном порту, отдельно запускать ничего не нужно.
 //
 // Что проверяется:
-//   1. ассеты из Blender загружены, консоль без ошибок;
+//   1. ассеты из Blender загружены, консоль без ошибок; игра работает без интернета:
+//      весь прогон идёт с заблокированной сетью — любой запрос не к своему серверу обрывается и считается ошибкой;
 //   2. старое сохранение (до кампании) читается без потерь; замки ограблений считаются по звёздам;
 //      язык: по умолчанию — язык системы, переключается на ходу, английский текст не вылезает за кнопки;
 //   3. автопилот проходит все уровни кампании; время не ушло от эталона (BASELINE) больше чем на 10 %;
@@ -58,6 +59,10 @@ if (!browser) { console.error('Не найден Chrome или Edge'); process.e
 // Язык системы — русский: проверки ниже сверяют русские причины провала, а заодно это проверка выбора языка по умолчанию.
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, locale: 'ru-RU' });
 const errors = [];
+// Сеть заблокирована: игра обязана грузиться только со своего сервера (библиотеки лежат в vendor/).
+const external = [];
+const offline = (somePage) => somePage.route((u) => !String(u).startsWith(url) && !/^(data|blob):/.test(String(u)), (route) => { external.push(route.request().url()); route.abort(); });
+await offline(page);
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(String(e)));
 page.on('response', (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${r.url()}`); });
@@ -153,6 +158,7 @@ check(overRu.length === 0, `русский текст помещается в к
 // язык системы не русский → английский
 {
   const p2 = await browser.newPage({ viewport: { width: 1280, height: 720 }, locale: 'de-DE' });
+  await offline(p2);
   await p2.goto(url);
   await p2.waitForFunction(() => window.__gg && window.__gg.state === 'menu', null, { timeout: 60000 });
   const d = await p2.evaluate(() => ({ play: document.querySelector('.screen[data-name=menu] .btn.primary').textContent, skin: window.__gg.save.skin, lang: window.__gg.save.lang }));
@@ -463,6 +469,7 @@ const fps = await page.evaluate(() => new Promise((res) => {
 console.log(`  инфо счётчик кадров на уровне 1: ${fps.fps.toFixed(0)} кадров/с (pixelRatio ${fps.pixelRatio}, 1280×720) — шумный, не критерий`);
 await shot('level1_start');
 
+check(external.length === 0, `без интернета: обращений к внешним адресам ${external.length}${external.length ? ' — ' + [...new Set(external)].slice(0, 4).join(', ') : ' (сеть была заблокирована весь прогон)'}`);
 check(errors.length === 0, `консоль без ошибок${errors.length ? ': ' + errors.slice(0, 5).join(' | ') : ''}`);
 await browser.close(); server.close();
 console.log(failed ? `\nПровалено проверок: ${failed}` : '\nВсе проверки пройдены');
