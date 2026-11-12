@@ -23,6 +23,10 @@ export const LIGHT = {
   maxPixelRatio: 2,
 };
 
+// Сколько остаётся в полной темноте (ловушка «перебои со светом»): доля отражений окружения на материалах
+// и доля яркости ламп и неона обстановки. Торцы стекла, круг «сейфа», лазеры и индикаторы ловушек не гаснут.
+export const DARK = { env: 0.06, glow: 0.12 };
+
 function scaleUV(geo, su, sv) {
   const uv = geo.attributes.uv;
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
@@ -176,8 +180,7 @@ export class Stage {
     cone.renderOrder = 6;
     scene.add(cone);
     this.cone = cone;
-    // фонарик на запястье: включается только на уровнях с темнотой (см. setHandLight)
-    this.handLight = new THREE.PointLight(0xfff0d8, 0, 0.7, 1.4);
+    this.litApplied = 1;
     this.coneAxis = spot.target.position.clone().sub(spot.position).normalize();
     this.coneRadius = r; this.coneHeight = h;
   }
@@ -252,10 +255,30 @@ export class Stage {
     return true;
   }
 
-  /** Фонарик на запястье есть в сцене только на уровнях с темнотой: лишний источник света на остальных не нужен. */
-  setHandLight(on) {
-    if (on) this.scene.add(this.handLight); else this.scene.remove(this.handLight);
-    if (!on) this.dark = this.darkK = 0;
+  /** Конец уровня с темнотой: свет и отражения сразу возвращаются полностью. */
+  clearDarkness() { this.dark = this.darkK = 0; this._applyDarkness(1); }
+
+  /**
+   * Темнота гасит не только лампы. Отражения окружения (scene.environment) освещают золото, стекло и стены
+   * сами по себе — без этого в «темноте» всё видно почти как при свете. Поэтому вместе со светом приглушаются
+   * отражения у всех материалов и светящиеся лампы и неон обстановки. lit: 1 — светло, 0 — темно.
+   */
+  _applyDarkness(lit) {
+    this.litApplied = lit;
+    const env = DARK.env + (1 - DARK.env) * lit, glow = DARK.glow + (1 - DARK.glow) * lit;
+    this.scene.traverse((o) => {
+      if (!o.material) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (m.envMapIntensity === undefined) continue;
+        if (m.userData.envBase === undefined) m.userData.envBase = m.envMapIntensity;
+        m.envMapIntensity = m.userData.envBase * env;
+      }
+    });
+    for (const k of ['lampGlow', 'neonPink', 'neonGreen']) {
+      const m = this.M[k]; if (!m) continue;
+      if (!m.userData.colorBase) m.userData.colorBase = m.color.clone();
+      m.color.copy(m.userData.colorBase).multiplyScalar(glow);
+    }
   }
 
   /** Короткая вспышка «сейфа», когда в него засчитан предмет. */
@@ -307,13 +330,12 @@ export class Stage {
     this.fill.color.copy(this.fillSky).lerp(_red, this.watchK * 0.85);
     this.fill.intensity = this.fillBase * (1 + this.watchK * 2.2);
     // темнота (значение dark 0..1 ставит ловушка): гаснут прожектор, контровой и почти весь заполняющий свет,
-    // остаются торцы стекла, круг «сейфа», лазеры и фонарик на запястье
+    // остаются светящиеся торцы стекла, круг «сейфа», лазеры и индикаторы ловушек
     this.darkK += ((this.dark || 0) - this.darkK) * (1 - Math.exp(-30 * dt));
     const lit = 1 - this.darkK;
     this.spot.intensity *= lit; this.rim.intensity = this.rimBase * lit; this.fill.intensity *= 0.1 + 0.9 * lit;
     this.cone.material.opacity = 0.013 * lit; this.dust.material.opacity = 0.38 * lit;
-    this.handLight.intensity = this.darkK * 0.75;
-    this.handLight.position.set(handPos.x, handPos.y + 0.17, handPos.z + 0.06);   // чуть выше и позади кисти, иначе рука пересвечена
+    if (Math.abs(lit - this.litApplied) > 0.004) this._applyDarkness(lit);
   }
 
   render() { this.composer.render(); }

@@ -9,7 +9,7 @@
 //    проверке вместе с кистью: кулак со слитком должен целиком пролезть в отверстие.
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { HAND, HAND_GEOM as G, WORLD } from './config.js';
+import { HAND, HAND_GEOM as G, HAND_START, WORLD } from './config.js';
 import { GROUP } from './box.js';
 import { pointPrimDistance } from './loot.js';
 
@@ -241,19 +241,25 @@ export class Hand {
     this.accessory = mesh;
   }
 
+  /** Мгновенно поставить кисть в позу { pos, yaw, pitch, roll } (градусы). Для старта уровня и для проверок. */
+  place(pose) {
+    this.pos.fromArray(pose.pos); this.target.copy(this.pos); this.vel.set(0, 0, 0);
+    const rad = THREE.MathUtils.degToRad;
+    this.ang.yaw = this.angT.yaw = rad(pose.yaw || 0);
+    this.ang.pitch = this.angT.pitch = rad(pose.pitch || 0);
+    this.ang.roll = this.angT.roll = rad(pose.roll || 0);
+    this._quatFromAngles(this.quat);
+    this._updateWrist();
+    this.prevWrist.copy(this.wrist); this.prevQuat.copy(this.quat);
+  }
+
   reset(level) {
     this._detach();
-    this.pos.fromArray(level.hand.pos); this.target.copy(this.pos); this.vel.set(0, 0, 0);
-    const rad = THREE.MathUtils.degToRad;
-    this.ang.yaw = this.angT.yaw = rad(level.hand.yaw || 0);
-    this.ang.pitch = this.angT.pitch = rad(level.hand.pitch || 0);
-    this.ang.roll = this.angT.roll = rad(level.hand.roll || 0);
-    this._quatFromAngles(this.quat);
+    // каждый уровень начинается в одной позе — подстроить руку под отверстие игрок должен сам
+    this.place(HAND_START);
     this.curl = 0; this.gripInput = false; this.gripLock = 0; this.regrab = 0; this.ghost = 0; this.slipTimer = 0;
     this.levelSlipSpeed = this.slipSpeed = level.grip?.slipSpeed ?? HAND.slipSpeed;
     this.grabItem = this.lastItem = null; this.grabReady = false;
-    this._updateWrist();
-    this.prevWrist.copy(this.wrist); this.prevQuat.copy(this.quat);
     this.events.length = 0;
     this.updateVisual(0);
   }

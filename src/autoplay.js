@@ -402,13 +402,27 @@ const AUTO = {
   8: { speed: 0.5, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.035, gripSettle: 0.35 },
 };
 
+/**
+ * Каждый уровень начинается в одной позе (HAND_START), а сценарии написаны от позы подхода из данных уровня
+ * (approach). Перевести руку: поднять выше коробки, провести над позой подхода, повернуть кисть, опустить.
+ */
+function* toApproach(g) {
+  const a = g.level.approach; if (!a) return;
+  const h = g.hand.pos, y = Math.max(h.y, a.pos[1], WORLD.tableY + g.level.box.size[1] + 0.2);
+  yield* moveTo(g, [h.x, y, h.z], 0.6, 0.02);
+  yield* moveTo(g, [a.pos[0], y, a.pos[2]], 0.6, 0.02);
+  yield* turn(g, { yaw: a.yaw || 0, pitch: a.pitch || 0, roll: a.roll || 0 });
+  yield* moveTo(g, a.pos, 0.6, 0.015);
+}
+
 /** Запустить сценарий уровня. Возвращает генератор для game.autopilot. */
 export function autopilotFor(game) {
   // у этапов многоэтапного уровня настройки лежат в данных этапа (поле auto):
   //   { ratchet: true } — сначала развернуть предмет перехватами; { swap: true } — сначала груз на весы
   const a = game.level.auto || AUTO[game.level.id] || {};
-  if (a.script) return a.script(game);
   return (function* () {
+    yield* toApproach(game);
+    if (a.script) return yield* a.script(game);
     if (a.swap) {
       const weight = game.items.find((it) => it.typeName === 'weight'), ped = game.level.pedestal;
       yield* clawGrab(game, weight);

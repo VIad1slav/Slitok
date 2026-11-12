@@ -468,14 +468,14 @@ class ScaleTrap {
 
 /**
  * Перебои со светом. Цикл: горит (on, с) → предупреждение (warn: свет дрожит, треск) → темнота (dark).
- * Сама темнота уровень не проваливает — она прячет коробку. В темноте видны торцы стекла, круг «сейфа», лазеры
- * и то, что освещает фонарик на запястье. Если в настройках выбрано «плавное» мигание, свет не дрожит, а плавно гаснет.
+ * Сама темнота уровень не проваливает — она прячет коробку, её можно переждать. В темноте видны только светящиеся
+ * торцы стекла, круг «сейфа», лазеры и индикаторы ловушек. Если в настройках выбрано «плавное» мигание,
+ * свет не дрожит, а плавно гаснет.
  */
 class BlackoutTrap {
   constructor(def, env) {
     this.def = { on: 3.5, warn: 0.5, dark: 2, phase: 0, ...def };
     this.env = env; this.state = 'on'; this.k = 0;
-    env.stage.setHandLight(true);
   }
   step(dt, ctx) {
     const d = this.def, cycle = d.on + d.warn + d.dark, t = (((ctx.time + d.phase) % cycle) + cycle) % cycle, prev = this.state;
@@ -493,7 +493,7 @@ class BlackoutTrap {
     }
   }
   update() { this.env.stage.dark = this.k; }
-  dispose() { this.env.stage.setHandLight(false); }
+  dispose() { this.env.stage.clearDarkness(); }
 }
 
 const TYPES = { blackout: BlackoutTrap, shutter: ShutterTrap, scale: ScaleTrap, plate: PlateTrap, lasers: LaserTrap, hot: HotTrap, spinner: SpinnerTrap, camera: CameraTrap };

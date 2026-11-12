@@ -280,7 +280,8 @@ class Game {
     window.addEventListener('mousemove', (e) => {
       if (this.state !== 'playing' || !locked()) return;
       const dx = e.movementX || 0, dy = e.movementY || 0;
-      if (this.rmb) this.hand.rotate(-dy * HAND.rotSens, -dx * HAND.rotSens);
+      // ПКМ + мышь направляет кисть: влево-вправо — поворот, вверх-вниз — наклон; скручивание запястья — Q/E
+      if (this.rmb) this.hand.rotate(-dy * HAND.rotSens, 0, -dx * HAND.rotSens);
       else this.hand.moveTarget(dx * HAND.mouseSens, -dy * HAND.mouseSens, 0);
     });
     canvas.addEventListener('wheel', (e) => {
@@ -307,8 +308,8 @@ class Game {
     const k = this.keys;
     if (k.has('KeyW')) this.hand.moveTarget(0, 0, -HAND.keySpeed * dt);
     if (k.has('KeyS')) this.hand.moveTarget(0, 0, HAND.keySpeed * dt);
-    if (k.has('KeyQ')) this.hand.rotate(0, 0, HAND.yawSpeed * dt);
-    if (k.has('KeyE')) this.hand.rotate(0, 0, -HAND.yawSpeed * dt);
+    if (k.has('KeyQ')) this.hand.rotate(0, HAND.twistSpeed * dt);
+    if (k.has('KeyE')) this.hand.rotate(0, -HAND.twistSpeed * dt);
   }
 
   // --- симуляция --------------------------------------------------------------

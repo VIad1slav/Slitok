@@ -23,12 +23,12 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.
 
 // Эталон: время автопилота (с) по id уровня. Симуляция детерминирована, поэтому расхождение значит,
 // что изменилась физика, уровень или сценарий автопилота. Меняя что-то из этого намеренно — обнови число.
-const BASELINE = {
-  1: 6.48, 2: 4.88, 3: 49.06, 4: 7.18, 5: 9.38, 6: 8.43, 7: 6.5, 8: 5.57,   // MVP; уровни 3 и 8 — после перевода автопилота на общие шаги (было 56.83 и 5.82)
-  9: 7.13, 10: 5.44, 11: 52.72, 12: 6.78, 13: 8.17, 14: 5.46, 15: 7.96, 16: 12.27, 17: 14.38, 18: 11.07,
-  19: 23.59, 20: 6.83, 21: 4.56, 22: 14.08, 23: 7.71, 24: 20.32, 25: 21.92, 26: 20.5,
-  27: 32.38, 28: 4.88, 29: 30.82, 30: 9.14, 31: 35.91, 32: 9.72,
-  33: 5.33, 34: 4.56, 35: 10.88, 36: 28.35, 37: 14.08, 38: 4.78, 39: 75.63, 40: 64.77,
+const BASELINE = {   // 2026-11-12: все уровни начинаются в общей позе HAND_START, автопилот сначала разворачивает руку
+  1: 7.41, 2: 6.51, 3: 51.12, 4: 8.1, 5: 9.37, 6: 10.33, 7: 8.21, 8: 11.29,
+  9: 8.03, 10: 7.06, 11: 54.78, 12: 7.65, 13: 9.8, 14: 7.52, 15: 10.03, 16: 12.21, 17: 14.37, 18: 12.61,
+  19: 24.48, 20: 8.88, 21: 12.45, 22: 14.97, 23: 7.6, 24: 28.02, 25: 29.92, 26: 30.71,
+  27: 33.27, 28: 6.51, 29: 30.82, 30: 10.86, 31: 35.28, 32: 27.11,
+  33: 6.93, 34: 14.95, 35: 12.89, 36: 29.52, 37: 14.97, 38: 18.71, 39: 80.68, 40: 78.22,
 };
 const TIME_TOLERANCE = 0.10;
 
@@ -134,19 +134,19 @@ const museum = await page.evaluate(() => {
   const g = window.__gg, S = 1 / 120, out = {};
   const run = (s, fn) => { for (let i = 0; i < s * 120 && g.state === 'playing'; i++) { if (fn) fn(); g._fixedStep(S); } };
   // ваза падает с 25 см — должна разбиться
-  g.startLevelById(12);
+  g.startLevelById(12); g.hand.place(g.level.approach);
   const vase = g.items[0];
   run(0.5);
   out.calm = { cracks: vase.cracks, broken: vase.broken };          // просто стоит — цела
   vase.body.position.y += 0.25; run(1.5);
   out.drop = { broken: vase.broken, result: g.result };
   // лёгкий стук (опускание с 4 см) — трещина, но не вдребезги
-  g.startLevelById(12);
+  g.startLevelById(12); g.hand.place(g.level.approach);
   const v2 = g.items[0];
   run(0.5); v2.body.position.y += 0.04; run(1.0);
   out.tap = { cracks: v2.cracks, broken: v2.broken, state: g.state };
   // камера: двигаем руку, пока она смотрит
-  g.startLevelById(13);
+  g.startLevelById(13); g.hand.place(g.level.approach);
   const cam = g.traps.find((t) => t.def.type === 'camera'), h = g.hand;
   for (let i = 0; i < 20 * 120 && g.state === 'playing' && cam.state !== 'watch'; i++) g._fixedStep(S);
   out.still = { state: cam.state };
@@ -169,20 +169,20 @@ const bank = await page.evaluate(() => {
   const g = window.__gg, S = 1 / 120, out = {};
   const run = (s, fn) => { for (let i = 0; i < s * 120 && g.state === 'playing'; i++) { if (fn) fn(); g._fixedStep(S); } };
   // заслонка: рука стоит в отверстии, пока та закрывается
-  g.startLevelById(21);
+  g.startLevelById(21); g.hand.place(g.level.approach);
   const sh = g.traps.find((t) => t.def.type === 'shutter'), h = g.hand, hole = { x: 0.09, y: 1.02, z: -0.1 };
   run(2.5, () => h.target.set(hole.x + 0.02, hole.y, hole.z));
   for (let i = 0; i < 12 * 120 && g.state === 'playing' && sh.state !== 'closed'; i++) g._fixedStep(S);
   run(0.6);
   out.shutter = { k: +sh.k.toFixed(2), alarm: !!g.alarmState, alarmText: g.alarmState?.text, handX: +h.pos.x.toFixed(3) };
   // закрытая заслонка не пускает руку внутрь
-  g.startLevelById(21);
+  g.startLevelById(21); g.hand.place(g.level.approach);
   const sh2 = g.traps.find((t) => t.def.type === 'shutter');
   for (let i = 0; i < 12 * 120 && g.state === 'playing' && !(sh2.state === 'closed' && sh2.k > 0.99); i++) g._fixedStep(S);
   run(1.2, () => h.target.set(-0.2, hole.y, hole.z));
   out.closed = { handX: +h.pos.x.toFixed(3), wallX: 0.09, alarm: !!g.alarmState };
   // весы: слиток унесён без груза — тревога
-  g.startLevelById(22);
+  g.startLevelById(22); g.hand.place(g.level.approach);
   const bar = g.items[0];
   run(1.0);
   out.scaleCalm = !g.alarmState;
@@ -191,7 +191,7 @@ const bank = await page.evaluate(() => {
   out.scale = { alarm: !!g.alarmState, text: g.alarmState?.text };
   // перегородка: рука идёт горизонтально сквозь барьер уровня 20 — должна упереться
   // перегородка: рука ныряет прямо в барьер уровня 20 (он на z = -0.02, высотой до y = 1.0) — пройти сквозь него нельзя
-  g.startLevelById(20);
+  g.startLevelById(20); g.hand.place(g.level.approach);
   run(1.5, () => h.target.set(-0.1, 1.25, 0.2));
   run(2.5, () => h.target.set(-0.1, 0.99, 0.06));
   let inside = 0; h.forEachArmSphere((x, y, z, r) => { if (y < 0.995 && Math.abs(z + 0.02) < r * 0.6) inside++; });
@@ -209,22 +209,23 @@ const casino = await page.evaluate(async () => {
   const g = window.__gg, S = 1 / 120, out = {}, C = await import('/src/cosmetics.js');
   const run = (s, fn) => { for (let i = 0; i < s * 120 && g.state === 'playing'; i++) { if (fn) fn(); g._fixedStep(S); } };
   const settle = () => { for (let i = 0; i < 40; i++) { for (const t of g.traps) t.update(0); g.stage.update(0.016, 0, g.hand.pos, 0); } };
-  // темнота: свет гаснет, фонарик на запястье горит; уровень при этом не проваливается
-  g.startLevelById(28);
+  // темнота: гаснут свет и отражения окружения (иначе золото и стекло видны как днём); уровень не проваливается
+  g.startLevelById(28); g.hand.place(g.level.approach);
   const bo = g.traps.find((t) => t.def.type === 'blackout');
   settle(); const litSpot = g.stage.spot.intensity;
   for (let i = 0; i < 12 * 120 && bo.state !== 'dark'; i++) g._fixedStep(S);
   settle();
-  out.dark = { spot: +g.stage.spot.intensity.toFixed(2), litSpot: +litSpot.toFixed(1), hand: +g.stage.handLight.intensity.toFixed(2), inScene: !!g.stage.handLight.parent, state: g.state };
+  const envK = () => { const m = g.items[0].material; return +(m.envMapIntensity / (m.userData.envBase ?? m.envMapIntensity)).toFixed(2); };   // у предмета своя копия материала
+  out.dark = { spot: +g.stage.spot.intensity.toFixed(2), litSpot: +litSpot.toFixed(1), env: envK(), lights: g.stage.scene.children.filter((o) => o.isPointLight).length, state: g.state };
   // предупреждение: с миганием яркость скачет, в «плавном» режиме — только убывает
-  const warnValues = (noFlicker) => { g.save.noFlicker = noFlicker; g.startLevelById(28); const b = g.traps.find((t) => t.def.type === 'blackout'), v = []; for (let i = 0; i < 12 * 120 && b.state !== 'dark'; i++) { g._fixedStep(S); if (b.state === 'warn') v.push(b.k); } return v; };
+  const warnValues = (noFlicker) => { g.save.noFlicker = noFlicker; g.startLevelById(28); g.hand.place(g.level.approach); const b = g.traps.find((t) => t.def.type === 'blackout'), v = []; for (let i = 0; i < 12 * 120 && b.state !== 'dark'; i++) { g._fixedStep(S); if (b.state === 'warn') v.push(b.k); } return v; };
   const jumps = (v) => v.filter((x, i) => i && x < v[i - 1] - 0.2).length;
   out.flicker = { on: jumps(warnValues(false)), smooth: jumps(warnValues(true)) };
   g.save.noFlicker = false;
-  g.startLevelById(1); settle();
-  out.lightOff = { inScene: !!g.stage.handLight.parent, spot: +g.stage.spot.intensity.toFixed(1) };
+  g.startLevelById(1); g.hand.place(g.level.approach); settle();
+  out.lightOff = { env: envK(), spot: +g.stage.spot.intensity.toFixed(1) };
   // бриллиант: выскальзывает на скорости, которую слиток выдерживает, и выпадает от удара о стекло
-  g.startLevelById(30);
+  g.startLevelById(30); g.hand.place(g.level.approach);
   const h = g.hand, d = g.items[0];
   const grab = () => { const p = d.position(); run(2.5, () => h.target.set(p.x + 0.3, p.y + 0.045, p.z)); run(1.5, () => h.target.set(p.x, p.y + 0.045, p.z)); run(0.5, () => h.target.set(p.x, p.y + 0.02, p.z)); h.setGrip(true); run(0.5); return h.holding; };
   out.diamond = { held: grab() };
@@ -243,9 +244,9 @@ const casino = await page.evaluate(async () => {
   g.toMenu();
   return out;
 });
-check(casino.dark.spot < casino.dark.litSpot * 0.05 && casino.dark.hand > 0.3 && casino.dark.inScene && casino.dark.state === 'playing', `темнота: прожектор ${casino.dark.litSpot} → ${casino.dark.spot}, фонарик на запястье ${casino.dark.hand}, уровень продолжается`);
+check(casino.dark.spot < casino.dark.litSpot * 0.05 && casino.dark.env < 0.1 && casino.dark.state === 'playing', `темнота: прожектор ${casino.dark.litSpot} → ${casino.dark.spot}, отражения на золоте ×${casino.dark.env}, точечных ламп в сцене ${casino.dark.lights}, уровень продолжается`);
 check(casino.flicker.on >= 1 && casino.flicker.smooth === 0, `мигание перед темнотой: обычный режим — скачков яркости ${casino.flicker.on}, «плавный» — ${casino.flicker.smooth}`);
-check(!casino.lightOff.inScene && casino.lightOff.spot > 5, 'на уровне без темноты фонарика в сцене нет, свет обычный');
+check(casino.lightOff.env === 1 && casino.lightOff.spot > 5, `после уровня с темнотой свет и отражения вернулись (отражения ×${casino.lightOff.env})`);
 check(casino.diamond.held && casino.diamond.slipped && casino.diamond.state === 'playing', `бриллиант: взят ${casino.diamond.held ? 'да' : 'нет'}, от рывка выскользнул ${casino.diamond.slipped ? 'да' : 'нет'}`);
 check(casino.ring.bone === 'ring_01' && casino.watch.bone === 'forearm' && casino.watch.recolored === 0 && casino.ring.glb, `украшения: кольцо на кости ${casino.ring.bone}, часы на ${casino.watch.bone}, смена руки их не перекрашивает`);
 check(casino.unlock.at10.join() === 'skin,glove,glove_red' && casino.unlock.at48.join() === 'ring,watch', `косметика по звёздам: при 10 — ${casino.unlock.at10.join(', ')}; украшения при 48 — ${casino.unlock.at48.join(', ')}`);
@@ -255,7 +256,7 @@ const boss = await page.evaluate(() => {
   const g = window.__gg, S = 1 / 120, out = {};
   const run = (s, fn) => { for (let i = 0; i < s * 120 && g.state === 'playing'; i++) { if (fn) fn(); g._fixedStep(S); } };
   // финал: автопилот доходит до этапа 2, там провал; «Ещё раз» должно вернуть на этап 2 с тем же временем
-  g.startLevelById(40); g.autopilot = null;
+  g.startLevelById(40); g.hand.place(g.level.approach); g.autopilot = null;
   g.runAuto(40); g.timeScale = 0;
   for (let i = 0; i < 120 * 120 && g.state === 'playing' && g.stageIndex === 0; i++) g._fixedStep(S);
   out.stage2 = { index: g.stageIndex, label: g.level.stage + '/' + g.level.stageCount, glass: g.box.usedGlb, time: +g.time.toFixed(1) };
@@ -263,10 +264,10 @@ const boss = await page.evaluate(() => {
   g.restartLevel();
   out.restart = { index: g.stageIndex, time: +g.time.toFixed(1), kept: Math.abs(g.time - t) < 0.01 && g.touches === touches, state: g.state };
   // на первом этапе «Ещё раз» начинает уровень с нуля
-  g.startLevelById(40); run(1.0); g.fail('проверка'); g.restartLevel();
+  g.startLevelById(40); g.hand.place(g.level.approach); run(1.0); g.fail('проверка'); g.restartLevel();
   out.restart0 = { index: g.stageIndex, time: +g.time.toFixed(1) };
   // пятно камеры (уровень 39): рука вне пятна двигается свободно, в пятне — тревога
-  g.startLevelById(39);
+  g.startLevelById(39); g.hand.place(g.level.approach);
   const cam = g.traps.find((t2) => t2.def.type === 'camera'), h = g.hand;
   const follow = (dx) => run(4.0, () => h.target.set(cam.zone.c.x + dx, 1.32, cam.zone.c.z + 0.02 * Math.sin(g.time * 9)));   // над коробкой: пятно считается по горизонтали
   follow(0.3);                                           // держимся в 30 см от центра пятна и шевелимся
@@ -274,7 +275,7 @@ const boss = await page.evaluate(() => {
   follow(0.0);                                           // едем вместе с пятном, в его центре
   out.zoneIn = { result: g.result, alarm: !!g.alarmState };
   // большой слиток (уровень 33) выскальзывает на скорости, которую обычный слиток держит
-  g.startLevelById(33);
+  g.startLevelById(33); g.hand.place(g.level.approach);
   const bar = g.items[0], p = bar.position().clone();
   run(2.0, () => h.target.set(p.x + 0.4, p.y + 0.06, p.z)); run(1.5, () => h.target.set(p.x, p.y + 0.06, p.z)); run(0.5, () => h.target.set(p.x, p.y + 0.03, p.z));
   h.setGrip(true); run(0.5);
@@ -318,7 +319,7 @@ const phys = await page.evaluate(() => {
   const g = window.__gg, S = 1 / 120, out = {};
   const run = (s, fn) => { for (let i = 0; i < s * 120 && g.state === 'playing'; i++) { if (fn) fn(); g._fixedStep(S); } };
   // рука давит на верхнюю стенку уровня 2 сверху на максимальной скорости
-  g.startLevelById(2);
+  g.startLevelById(2); g.hand.place(g.level.approach);
   const h = g.hand, top = 0.9 + g.level.box.size[1];
   run(1.0, () => h.target.set(-0.2, 1.5, -0.1));
   run(1.5, () => h.target.set(-0.2, 0.95, -0.1));
@@ -329,7 +330,7 @@ const phys = await page.evaluate(() => {
   for (let k = 0; k < 8 && g.state === 'playing'; k++) { run(0.7, () => h.target.set(-0.2, 1.5, -0.1)); run(0.7, () => h.target.set(-0.2, 0.95, -0.1)); }
   out.broken = { result: g.result, broken: g.box.broken };
   // уровень 3: хватаем слиток поперёк и тянем наружу
-  g.startLevelById(3);
+  g.startLevelById(3); g.hand.place(g.level.approach);
   const bar = g.items[0], b = bar.position().clone(), yG = b.y + 0.0225 + 0.022, V = h.target.constructor;
   const go = (x, y, z, sec, sp = 0.5) => { const d = new V(x, y, z); run(sec, () => { const c = h.target, dd = c.distanceTo(d); if (dd > sp * S) c.lerp(d, sp * S / dd); else c.copy(d); }); };
   go(b.x, yG + 0.012, b.z + 0.5, 1.5); go(b.x, yG + 0.012, b.z, 2); go(b.x, yG - 0.01, b.z, 0.5, 0.2);
@@ -338,7 +339,7 @@ const phys = await page.evaluate(() => {
   go(b.x, yG + 0.03, b.z, 0.6, 0.2); go(b.x, yG + 0.03, b.z + 0.6, 4, 0.4);
   out.monkey = { held, barZ: +bar.position().z.toFixed(3), wallZ: g.level.box.pos[1] + g.level.box.size[2] / 2, state: g.state };
   // слиток летит внутри коробки и не пролетает сквозь дно/стенки
-  g.startLevelById(1);
+  g.startLevelById(1); g.hand.place(g.level.approach);
   const flying = g.items[0];
   flying.body.position.y += 0.15; flying.body.velocity.set(2.5, -1, 1.5);
   run(2);
