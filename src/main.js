@@ -17,7 +17,8 @@ import { spawnShards } from './shards.js';
 import { Hand } from './hand.js';
 import { Pedestal, createTraps } from './traps.js';
 import { AudioSys } from './audio.js';
-import { UI, loadSave, storeSave } from './ui.js';
+import { UI } from './ui.js';
+import { loadAll, storeSave, storeSettings } from './save.js';
 import { autopilotFor } from './autoplay.js';
 import { platform } from './platform.js';
 
@@ -34,10 +35,12 @@ class Game {
     this.autopilot = null;
     this.hud = { meter: null };
     this.fps = 60; this._fpsAcc = 0; this._fpsFrames = 0; this._lowFpsTime = 0;
-    this.save = loadSave();
-    setLang(this.save.lang);            // null — язык системы
+    const data = loadAll();
+    this.save = data.save; this.settings = data.settings;
+    if (data.notes.save || data.notes.settings) console.info('[Golden Grab] player files were damaged:', data.notes);   // 'restored' — взята запасная копия, 'reset' — начато заново
+    setLang(this.settings.lang);        // null — язык системы
     this.audio = new AudioSys();
-    this.audio.volume = this.save.volume;
+    this.audio.volume = this.settings.volume;
   }
 
   async init() {
@@ -54,7 +57,7 @@ class Game {
       language: (lang) => this.setLanguage(lang),
       quit: () => platform.quit(),
       fullscreen: (on) => platform.setFullscreen(on),
-    }, this.save);
+    }, this.save, this.settings);
     this.ui.show('loading');
 
     // Экран загрузки висит, пока не загружены все текстуры и модели и не нарисован первый кадр:
@@ -176,7 +179,7 @@ class Game {
 
   /** Сменить язык: тексты интерфейса строятся заново, уровень и его состояние не трогаются. */
   setLanguage(lang) {
-    this.save.lang = setLang(lang); storeSave(this.save);
+    this.settings.lang = setLang(lang); storeSettings(this.settings);
     this.ui.rebuild();
     if (this.state === 'paused') this.ui.startLevel(this.level, placeOf(this.level.id));
   }
@@ -328,7 +331,7 @@ class Game {
     const away = () => { this.keys.clear(); this.rmb = false; this.hand.setGrip(false); if (!this.autopilot) this.pause(); };
     window.addEventListener('blur', away);
     document.addEventListener('visibilitychange', () => { if (document.hidden) away(); });
-    platform.onFullscreen((on) => this.ui.setFullscreen(on));
+    platform.onFullscreen((on) => { this.settings.fullscreen = on; storeSettings(this.settings); this.ui.setFullscreen(on); });
     // в сборке для игроков контекстного меню нет нигде
     if (platform.isDesktop && !platform.dev) window.addEventListener('contextmenu', (e) => e.preventDefault());
   }

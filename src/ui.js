@@ -1,30 +1,9 @@
 // HUD, меню, экраны победы/поражения, сохранение прогресса. Текста здесь нет — только ключи словарей src/i18n/.
-import { STORAGE_KEY } from './config.js';
+import { storeSave, storeSettings } from './save.js';
 import { HEISTS, heistStars, isHeistUnlocked, totalStars, continueLevel, levelById } from './heists.js';
 import { cosmeticById, unlockedCosmetics } from './cosmetics.js';
 import { platform } from './platform.js';
 import { t, tList, tPick, LANGS, getLang, langName, levelName, levelHint, heistName, heistTagline, cosmeticName } from './i18n/index.js';
-
-// --- сохранение (localStorage может быть недоступен — всё в try/catch) ---------
-// Версии сохранения: 1 (без поля version) — { best, skin, volume }; 2 — добавлены version и accessory;
-// 3 — добавлен lang (язык; null — язык системы).
-// Рекорды хранятся по id уровня, а что открыто (ограбления, косметика), считается из звёзд и не хранится.
-export const SAVE_VERSION = 3;
-export function migrateSave(raw) {
-  const def = { version: SAVE_VERSION, best: {}, skin: 'skin', accessory: null, noFlicker: false, volume: 0.7, lang: null };
-  if (!raw || typeof raw !== 'object') return def;
-  const save = { ...def, ...raw, version: SAVE_VERSION };
-  if (!save.best || typeof save.best !== 'object') save.best = {};
-  if (cosmeticById(save.skin).id !== save.skin) save.skin = def.skin;   // неизвестный вариант руки → кожа
-  if (!LANGS.includes(save.lang)) save.lang = null;                      // неизвестный язык → язык системы
-  return save;
-}
-export function loadSave() {
-  try { return migrateSave(JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')); } catch { return migrateSave(null); }
-}
-export function storeSave(save) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(save)); } catch { /* приватный режим и т.п. */ }
-}
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const stars = (n, max = 3) => '<span class="stars">' + Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}">★</i>`).join('') + '</span>';
@@ -32,8 +11,8 @@ export const fmtTime = (t) => { const m = Math.floor(t / 60), s = t - m * 60; re
 
 
 export class UI {
-  constructor(root, handlers, save) {
-    this.root = root; this.h = handlers; this.save = save;
+  constructor(root, handlers, save, settings) {
+    this.root = root; this.h = handlers; this.save = save; this.settings = settings;
     this.screens = {};
     this.root.innerHTML = '';     // убрать заставку из index.html
     this._build();
@@ -74,14 +53,14 @@ export class UI {
     }, 'ghost');
     const vol = el('label', 'vol', `<span>${t('opt.volume')}</span>`);
     this.volInput = el('input'); this.volInput.type = 'range'; this.volInput.min = 0; this.volInput.max = 1; this.volInput.step = 0.01;
-    this.volInput.addEventListener('input', () => { this.save.volume = +this.volInput.value; this.h.volume(this.save.volume); storeSave(this.save); });
+    this.volInput.addEventListener('input', () => { this.settings.volume = +this.volInput.value; this.h.volume(this.settings.volume); storeSettings(this.settings); });
     vol.append(this.volInput);
     this.accBtn = this._button('', () => {    // украшение: «нет» и открытые варианты по кругу
       const list = [null, ...unlockedCosmetics('accessory', totalStars(this.save)).map((c) => c.id)], i = list.indexOf(this.save.accessory);
       this.save.accessory = list[(i + 1) % list.length];
       this._syncOptions(); this.h.accessory(this.save.accessory); storeSave(this.save);
     }, 'ghost');
-    this.flickerBtn = this._button('', () => { this.save.noFlicker = !this.save.noFlicker; this._syncOptions(); storeSave(this.save); }, 'ghost');
+    this.flickerBtn = this._button('', () => { this.settings.noFlicker = !this.settings.noFlicker; this._syncOptions(); storeSettings(this.settings); }, 'ghost');
     this.langBtn = this._button('', () => this.h.language(LANGS[(LANGS.indexOf(getLang()) + 1) % LANGS.length]), 'ghost');   // языки по кругу
     this.fsBtn = this._button('', () => this.h.fullscreen(!platform.isFullscreen()), 'ghost');   // полный экран / окно (ещё Alt+Enter)
     this.fsBtn.hidden = !platform.isDesktop;
@@ -161,10 +140,10 @@ export class UI {
     this.skinBtn.innerHTML = `${t('opt.hand')}: <b>${cosmeticName(cosmeticById(this.save.skin))}</b>`;
     this.accBtn.innerHTML = `${t('opt.accessory')}: <b>${this.save.accessory ? cosmeticName(cosmeticById(this.save.accessory)) : t('opt.accessoryNone')}</b>`;
     this.accBtn.hidden = unlockedCosmetics('accessory', totalStars(this.save)).length === 0;   // пока ничего не открыто, кнопки нет
-    this.flickerBtn.innerHTML = `${t('opt.flicker')}: <b>${this.save.noFlicker ? t('opt.flickerOff') : t('opt.flickerOn')}</b>`;
+    this.flickerBtn.innerHTML = `${t('opt.flicker')}: <b>${this.settings.noFlicker ? t('opt.flickerOff') : t('opt.flickerOn')}</b>`;
     this.langBtn.innerHTML = `${t('opt.language')}: <b>${langName(getLang())}</b>`;
     this.fsBtn.innerHTML = `${t('opt.display')}: <b>${platform.isDesktop && platform.isFullscreen() ? t('opt.fullscreen') : t('opt.windowed')}</b>`;
-    this.volInput.value = this.save.volume;
+    this.volInput.value = this.settings.volume;
   }
 
   /** Экран выбора: по блоку на ограбление — название, звёзды, замок с порогом, карточки уровней. */

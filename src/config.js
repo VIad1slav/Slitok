@@ -95,5 +95,5 @@ export const WORLD = {
   room: [5.2, 3.0, 5.2],
 };
 
-export const STORAGE_KEY = 'goldenGrab.v1';
+// Сохранение и настройки — src/save.js; где они лежат — src/platform.js.
 // Фразы для экрана поражения — в словарях src/i18n/ (ключ fail.lines).

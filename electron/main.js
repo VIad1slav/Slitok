@@ -49,7 +49,7 @@ async function serve(request) {
 const fromGame = (event) => { try { return event.senderFrame.url.startsWith(ORIGIN + '/'); } catch { return false; } };
 
 let win = null;
-const features = [];   // дополнительные части (сохранения, Steam) подключаются ниже
+const features = [require('./store.js')];   // дополнительные части: файлы игрока; Steam подключается ниже
 
 function createWindow() {
   const startFullscreen = features.reduce((v, f) => (f.startFullscreen ? f.startFullscreen() : v), true);

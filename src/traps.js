@@ -484,7 +484,7 @@ class BlackoutTrap {
       this.state = 'warn';
       const u = (t - d.on) / d.warn;
       // дрожание не чаще 3 раз в секунду; в «плавном» режиме — просто затухание
-      this.k = ctx.game.save.noFlicker ? u * 0.6 : (Math.floor((t - d.on) * 6) % 2 ? 0.75 : 0.2);
+      this.k = ctx.game.settings.noFlicker ? u * 0.6 : (Math.floor((t - d.on) * 6) % 2 ? 0.75 : 0.2);
     } else { this.state = 'dark'; this.k = 1; }
     if (prev !== this.state) {
       if (this.state === 'warn') { ctx.audio.crackle(); ctx.game.toast(say('trap.darkWarn')); }

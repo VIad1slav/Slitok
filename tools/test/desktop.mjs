@@ -32,10 +32,19 @@ const windowInfo = (app) => app.evaluate(({ BrowserWindow, app: a }) => {
   return { title: w.getTitle(), fullscreen: w.isFullScreen(), menu: w.isMenuBarVisible(), userData: a.getPath('userData'), packaged: a.isPackaged, name: a.getName(),
     prefs: { contextIsolation: p.contextIsolation, nodeIntegration: p.nodeIntegration, sandbox: p.sandbox, devTools: p.devTools, webSecurity: p.webSecurity } };
 });
+const readJson = (file) => { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; } };
+const quit = async (app, page) => { const done = closed(app); await page.evaluate(() => window.desktop.quit()); return Promise.race([done, sleep(8000).then(() => false)]); };
 const closed = (app) => new Promise((r) => app.once('close', () => r(true)));
 /** Нажатие клавиши на уровне окна — как с настоящей клавиатуры (проходит через обработчик главного процесса). */
 const press = (app, keyCode, modifiers = []) => app.evaluate(({ BrowserWindow }, [k, m]) => { const wc = BrowserWindow.getAllWindows()[0].webContents; wc.sendInputEvent({ type: 'keyDown', keyCode: k, modifiers: m }); wc.sendInputEvent({ type: 'keyUp', keyCode: k, modifiers: m }); }, [keyCode, modifiers]);
-const focus = async (app) => { await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.show(); w.focus(); }); await sleep(900); };
+// Вывести окно на передний план и сказать, получилось ли. Windows не всегда отдаёт фокус окну, которое запустила
+// программа, а не человек (особенно если в это время кто-то работает за компьютером). Без фокуса игра законно
+// стоит на паузе и мышь не захватывается — тогда проверки, которым нужен фокус, пропускаются, а не проваливаются.
+const focus = async (app) => {
+  const ok = await app.evaluate(async ({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.show(); w.focus(); await new Promise((r) => setTimeout(r, 900)); return w.isFocused(); });
+  if (!ok) console.log('  пропуск  Windows не отдала окну фокус — проверки захвата мыши в этом запуске пропущены');
+  return ok;
+};
 
 // ------------------------------------------------------------------ режим разработки
 if (!EXE) {
@@ -55,11 +64,13 @@ if (!EXE) {
 
   // «Играть» → мышь захвачена сразу; потеря фокуса → пауза, время стоит.
   // Идёт раньше переключения полного экрана: нажатие Alt в проверке на время сбивает захват мыши.
-  await focus(app);
+  const focusedDev = await focus(app);
   await page.click('.screen[data-name=menu] .btn.primary');
   await page.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 3000 }).catch(() => {});
   const play = await page.evaluate(() => ({ state: window.__gg.state, locked: document.pointerLockElement === window.__gg.stage.renderer.domElement }));
-  check(play.state === 'playing' && play.locked, `клик «Играть»: уровень идёт (${play.state}), мышь захвачена сразу (${play.locked})`);
+  if (focusedDev) check(play.state === 'playing' && play.locked, `клик «Играть»: уровень идёт (${play.state}), мышь захвачена сразу (${play.locked})`);
+  if (!focusedDev) await page.evaluate(() => { const g = window.__gg; if (g.state === 'paused') g.resume(); });
+  await sleep(300);
   const t0 = await page.evaluate(() => window.__gg.time);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].blur());
   await page.evaluate(() => window.dispatchEvent(new Event('blur')));   // на случай, если ОС не отдала фокус другому окну
@@ -73,7 +84,15 @@ if (!EXE) {
   // уровень 1 автопилотом — то же, что в браузере
   const auto = await page.evaluate(() => window.__gg.autoTest(1, 60));
   check(auto.result === 'won', `уровень 1 проходится автопилотом в настольном окне: ${auto.result}, ${auto.time} с`);
-  await page.evaluate(() => window.__gg.toMenu());
+  await page.evaluate(() => { const g = window.__gg; g.endTimer = 0; g.endAction?.(); g.endAction = null; g.toMenu(); });
+
+  // сохранение — файл JSON в папке данных, рядом настройки
+  const saves = join(dir, 'saves'), saveFile = join(saves, 'save.json'), settingsFile = join(saves, 'settings.json');
+  await page.evaluate(() => window.__gg.setLanguage('en')); await sleep(600);
+  const onDisk = { save: readJson(saveFile), settings: readJson(settingsFile), files: existsSync(saves) ? readdirSync(saves) : [], dir: await page.evaluate(() => window.desktop.storeDir()) };
+  check(onDisk.save?.version === 4 && onDisk.save.best?.[1]?.stars >= 1 && onDisk.settings?.lang === 'en' && !onDisk.files.some((f) => f.endsWith('.tmp')),
+    `сохранение записано в файл: ${onDisk.dir}\\save.json (рекорд уровня 1: ${onDisk.save?.best?.[1]?.time} с), настройки — settings.json (язык ${onDisk.settings?.lang}); в папке: ${onDisk.files.join(', ')}`);
+  await page.evaluate(() => window.__gg.setLanguage('ru')); await sleep(600);
 
   // оконный режим и обратно
   await page.evaluate(() => window.desktop.setFullscreen(false));
@@ -90,10 +109,51 @@ if (!EXE) {
 
   check(external.length === 0, `обращений не к своим файлам: ${external.length}${external.length ? ' — ' + external.slice(0, 3).join(', ') : ''}`);
   check(errors.length === 0, `консоль без ошибок${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
-  const done = closed(app);
-  await page.evaluate(() => window.desktop.quit());
-  check(await Promise.race([done, sleep(8000).then(() => false)]), 'выход из приложения работает');
-  await app.close().catch(() => {}); await sleep(500);
+  check(await quit(app, page), 'выход из приложения работает');
+  await sleep(500);
+
+  // --- перезапуск: сохранение читается из файла; оконный режим запомнен
+  {
+    const r = await launch({ release: false, dir });
+    const st = await r.page.evaluate(() => ({ best: window.__gg.save.best, fullscreen: window.desktop.isFullscreen(), lang: window.__gg.settings.lang }));
+    check(st.best[1]?.stars >= 1 && st.fullscreen === false && st.lang === 'ru', `после перезапуска рекорд на месте (уровень 1: ${st.best[1]?.time} с), окно открылось в запомненном режиме (полный экран: ${st.fullscreen})`);
+    await quit(r.app, r.page); await sleep(500);
+  }
+  // --- повреждённый файл: игра запускается, берёт запасную копию; без копии — начинает с чистого листа
+  {
+    writeFileSync(saveFile, '{"version":4,"best":{"1":{"stars":3,"time":5.5,"touches":0},"2":{"stars":2,"time":9,"touches":1}},"skin":"skin","accessory":null}');
+    let r = await launch({ release: false, dir });
+    await r.page.evaluate(() => { const g = window.__gg; g.save.best[9] = { stars: 1, time: 50, touches: 9 }; return import('/src/save.js').then((S) => S.storeSave(g.save)); });   // вторая запись: появляется .bak
+    await sleep(300); await quit(r.app, r.page); await sleep(500);
+    const bak = readJson(saveFile + '.bak');
+    writeFileSync(saveFile, '{"version":4,"best":{"1":{"sta');                       // оборванная запись
+    r = await launch({ release: false, dir });
+    const st = await r.page.evaluate(() => ({ best: Object.keys(window.__gg.save.best), state: window.__gg.state }));
+    const files = readdirSync(saves);
+    check(st.state === 'menu' && bak && st.best.join() === '1,2' && files.some((f) => f.startsWith('save.json.corrupt-')), `повреждённый save.json: игра запустилась, взята запасная копия (рекорды уровней ${st.best.join(', ')}), испорченный файл отложен (${files.filter((f) => f.includes('corrupt')).join(', ')})`);
+    await quit(r.app, r.page); await sleep(500);
+    for (const f of readdirSync(saves)) if (f.startsWith('save.json')) rmSync(join(saves, f));
+    writeFileSync(saveFile, 'это не JSON'); writeFileSync(settingsFile, '[1, 2');
+    r = await launch({ release: false, dir });
+    const st2 = await r.page.evaluate(() => ({ best: Object.keys(window.__gg.save.best).length, state: window.__gg.state, volume: window.__gg.settings.volume }));
+    check(st2.state === 'menu' && st2.best === 0 && st2.volume === 0.7 && r.errors.length === 0, `испорчены оба файла и копии нет: игра запустилась с чистым сохранением (рекордов ${st2.best}), ошибок на экране и в консоли нет`);
+    await quit(r.app, r.page); await sleep(500);
+  }
+  // --- перенос из localStorage: файла нет, а в localStorage приложения лежит старое сохранение
+  {
+    for (const f of readdirSync(saves)) rmSync(join(saves, f));
+    let r = await launch({ release: false, dir });
+    await r.page.evaluate(() => localStorage.setItem('goldenGrab.v1', JSON.stringify({ best: { 1: { stars: 3, time: 6.5, touches: 0 }, 5: { stars: 1, time: 80, touches: 7 } }, skin: 'glove', volume: 0.4 })));
+    await sleep(300); await quit(r.app, r.page); await sleep(500);
+    for (const f of readdirSync(saves)) rmSync(join(saves, f));
+    r = await launch({ release: false, dir });
+    const st = await r.page.evaluate(() => ({ best: window.__gg.save.best, skin: window.__gg.save.skin, volume: window.__gg.settings.volume }));
+    await sleep(300);
+    const file = readJson(saveFile), set = readJson(settingsFile);
+    check(st.best[1]?.time === 6.5 && st.best[5]?.stars === 1 && st.skin === 'glove' && st.volume === 0.4 && file?.best?.[5]?.time === 80 && file.skin === 'glove' && set?.volume === 0.4,
+      `сохранение из localStorage перенесено в файл без потерь (рекордов ${Object.keys(st.best).length}, рука «${st.skin}», громкость ${st.volume})`);
+    await quit(r.app, r.page); await sleep(500);
+  }
   try { rmSync(dir, { recursive: true, force: true }); } catch { /* папку ещё держит система — не страшно */ }
 }
 
@@ -109,18 +169,30 @@ console.log(EXE ? `Собранное приложение: ${EXE}` : 'Режи�
   check(web.gg === 'undefined' && web.dev === false, `отладочного window.__gg нет (${web.gg})`);
 
   // «Играть»: уровень идёт, мышь захвачена. Эта проверка идёт первой: попытка открыть DevTools ниже на время сбивает захват мыши.
-  await focus(app);
+  const focusedRel = await focus(app);
   await page.click('.screen[data-name=menu] .btn.primary');
-  await sleep(1500);
+  await page.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 3000 }).catch(() => {});
+  await sleep(1200);
   const hud = await page.evaluate(() => ({ hud: !document.querySelector('.hud').hidden, timer: document.querySelector('.hud .timer').textContent, locked: !!document.pointerLockElement, level: document.querySelector('.hud .lvl').textContent }));
   await sleep(1000);
   const timer2 = await page.evaluate(() => document.querySelector('.hud .timer').textContent);
-  check(hud.hud && hud.locked && timer2 !== hud.timer, `клик «Играть»: уровень «${hud.level}» идёт (таймер ${hud.timer} → ${timer2}), мышь захвачена (${hud.locked})`);
+  if (focusedRel) check(hud.hud && hud.locked && timer2 !== hud.timer, `клик «Играть»: уровень «${hud.level}» идёт (таймер ${hud.timer} → ${timer2}), мышь захвачена (${hud.locked})`);
+  else check(hud.hud && /\S/.test(hud.level), `клик «Играть»: уровень «${hud.level}» запущен (окно без фокуса — игра на паузе, как и должна)`);
   if (SHOTS) { mkdirSync(join(ROOT, 'docs', 'screens'), { recursive: true }); await page.screenshot({ path: join(ROOT, 'docs', 'screens', EXE ? 'desktop_exe_level.png' : 'desktop_level.png') }); }
 
-  await page.keyboard.press('Escape'); await sleep(500);
+  if (await page.evaluate(() => document.querySelector('.screen[data-name=pause]').hidden)) { await page.keyboard.press('Escape'); await sleep(500); }
   await page.evaluate(() => { const b = [...document.querySelectorAll('.screen[data-name=pause] .btn')].pop(); b.click(); });   // «В меню»
   await sleep(400);
+
+  // сохранение и настройки пишутся в файлы: меняем руку (это сохранение) и язык (это настройки) кнопками меню
+  {
+    const saves = join(dir, 'saves');
+    const clickBtn = (re) => page.evaluate((src) => { const b = [...document.querySelectorAll('.screen[data-name=menu] .btn')].find((x) => new RegExp(src).test(x.textContent)); b?.click(); return !!b; }, re);
+    await clickBtn('^(Рука|Hand)'); await clickBtn('^(Язык|Language)'); await sleep(700);
+    const save = readJson(join(saves, 'save.json')), settings = readJson(join(saves, 'settings.json'));
+    check(save?.skin === 'glove' && ['en', 'ru'].includes(settings?.lang), `файлы игрока пишутся: ${join(info.userData, 'saves')} — save.json (рука «${save?.skin}»), settings.json (язык ${settings?.lang})`);
+    await clickBtn('^(Рука|Hand)'); await clickBtn('^(Язык|Language)'); await sleep(400);
+  }
 
   // DevTools, F12, Ctrl+R: страница не должна перезагрузиться, DevTools — открыться
   await page.evaluate(() => { window.__marker = 42; });

@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld('desktop', {
   quit: () => ipcRenderer.send('app:quit'),
   setFullscreen: (on) => ipcRenderer.send('window:set-fullscreen', !!on),
   isFullscreen: () => ipcRenderer.sendSync('window:get-fullscreen'),
+  // файлы игрока: name — 'save' или 'settings' (см. electron/store.js)
+  storeRead: (name) => ipcRenderer.sendSync('store:read', String(name)),
+  storeWrite: (name, text) => ipcRenderer.send('store:write', String(name), String(text)),
+  storeDir: () => ipcRenderer.sendSync('store:dir'),
   /** Сообщать игре, когда окно вошло в полный экран или вышло из него (Alt+Enter, F11). */
   onFullscreen: (fn) => { ipcRenderer.on('window:fullscreen', (e, on) => fn(!!on)); },
 });

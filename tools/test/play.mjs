@@ -90,14 +90,16 @@ check(info.report.pngTextures.length === 0, `все текстуры взяты 
 const sv = await page.evaluate(async () => {
   const g = window.__gg, H = await import('/src/heists.js'), I = await import('/src/i18n/index.js');
   return {
-    lang: g.save.lang, shown: I.getLang(), title: document.querySelector('.screen[data-name=menu] .btn.primary').textContent,
-    version: g.save.version, best: g.save.best, skin: g.save.skin, volume: g.save.volume, handSkin: g.hand.skin,
+    lang: g.settings.lang, shown: I.getLang(), stored: { save: JSON.parse(localStorage.getItem('goldenGrab.v1')), settings: JSON.parse(localStorage.getItem('goldenGrab.settings.v1')) }, title: document.querySelector('.screen[data-name=menu] .btn.primary').textContent,
+    version: g.save.version, best: g.save.best, skin: g.save.skin, volume: g.settings.volume, handSkin: g.hand.skin,
     stars: H.totalStars(g.save), open: H.HEISTS.map((h) => H.isHeistUnlocked(h, g.save)), thresholds: H.HEISTS.map((h) => h.unlockStars),
     next: H.continueLevel(g.save).id,
   };
 });
-check(sv.version === 3 && JSON.stringify(sv.best) === JSON.stringify(OLD_SAVE.best) && sv.skin === 'glove' && sv.handSkin === 'glove' && sv.volume === 0.4,
+check(sv.version === 4 && JSON.stringify(sv.best) === JSON.stringify(OLD_SAVE.best) && sv.skin === 'glove' && sv.handSkin === 'glove' && sv.volume === 0.4,
   `старое сохранение прочитано без потерь (версия ${sv.version}, рекордов ${Object.keys(sv.best).length}, рука «${sv.skin}», громкость ${sv.volume})`);
+check(sv.stored.save?.version === 4 && JSON.stringify(sv.stored.save.best) === JSON.stringify(OLD_SAVE.best) && sv.stored.save.volume === undefined && sv.stored.settings?.volume === 0.4,
+  `старое сохранение сразу переписано в новом виде: прогресс отдельно, настройки отдельно (громкость ${sv.stored.settings?.volume})`);
 check(sv.lang === null && sv.shown === 'ru' && sv.title === 'Играть', `язык по умолчанию взят из системы (ru-RU → «${sv.shown}», кнопка «${sv.title}»), в старом сохранении язык не задан`);
 check(sv.stars === 6 && sv.open.join() === 'true,false,false,false,false' && sv.next === 9,
   `замки по звёздам: звёзд ${sv.stars}, открыто ${sv.open.map((o) => (o ? 'да' : 'нет')).join('/')} при порогах ${sv.thresholds.join('/')}, «Играть» ведёт на уровень ${sv.next}`);
@@ -116,6 +118,16 @@ const freeze = (id, t, side = false) => page.evaluate(([lvl, sec, sideView]) => 
   for (let i = 0; i < sec * 120 && g.state === 'playing'; i++) g._fixedStep(1 / 120);
   if (sideView) { g.stage.sideTarget = 1; g.stage.sideBlend = 1; }
 }, [id, t, side]);
+
+// --- испорченное сохранение не роняет игру: мусор отбрасывается, годное остаётся
+const junk = await page.evaluate(async () => {
+  const S = await import('/src/save.js');
+  const a = S.migrateSave({ best: { 1: { stars: 3, time: 5 }, 2: 'мусор', 3: { stars: 'x' }, 7: { stars: 9, time: 20, touches: 1 } }, skin: 'ring', accessory: 'нет такого' });
+  const b = S.migrateSave('строка вместо объекта'), c = S.migrateSettings({ volume: 'громко', lang: 'xx', noFlicker: 1 }), d = S.migrateSettings(null, null);
+  return { a, b, c, d };
+});
+check(Object.keys(junk.a.best).join() === '1,7' && junk.a.best[7].stars === 3 && junk.a.skin === 'skin' && junk.a.accessory === null && Object.keys(junk.b.best).length === 0 && junk.c.volume === 0.7 && junk.c.lang === null && junk.c.noFlicker === false && junk.d.volume === 0.7,
+  `испорченные поля сохранения отбрасываются, годные рекорды остаются (${Object.keys(junk.a.best).join(', ')}), настройки с мусором → значения по умолчанию`);
 
 // --- язык: переключение на ходу, выбор хранится в сохранении, текст не вылезает за кнопки и карточки
 // Экраны показываются по очереди на обоих языках; у каждой кнопки, карточки и подписи сверяется,
@@ -141,7 +153,7 @@ await setLang('en');
 const en = await page.evaluate(async () => {
   const g = window.__gg, I = await import('/src/i18n/index.js'), H = await import('/src/heists.js');
   const cyr = [...document.querySelectorAll('#ui *')].filter((e) => !e.children.length && /[\u0400-\u04FF]/.test(e.textContent)).map((e) => e.textContent.trim()).filter((x) => x !== 'Русский');
-  return { play: document.querySelector('.screen[data-name=menu] .btn.primary').textContent, saved: JSON.parse(localStorage.getItem('goldenGrab.v1')).lang, htmlLang: document.documentElement.lang,
+  return { play: document.querySelector('.screen[data-name=menu] .btn.primary').textContent, saved: await new Promise((r) => setTimeout(() => r(JSON.parse(localStorage.getItem('goldenGrab.settings.v1')).lang), 400)), htmlLang: document.documentElement.lang,
     level: I.levelName(H.levelById(3)), heist: I.heistName(H.HEISTS[0]), cyr, best: Object.keys(g.save.best).length };
 });
 check(en.play === 'Play' && en.saved === 'en' && en.htmlLang === 'en' && en.level === 'Monkey Trap' && en.best === 3, `переключение на английский: кнопка «${en.play}», уровень 3 — «${en.level}», выбор записан в сохранение, рекорды на месте (${en.best})`);
@@ -164,7 +176,7 @@ check(overRu.length === 0, `русский текст помещается в к
   await offline(p2);
   await p2.goto(url);
   await p2.waitForFunction(() => window.__gg && window.__gg.state === 'menu', null, { timeout: 60000 });
-  const d = await p2.evaluate(() => ({ play: document.querySelector('.screen[data-name=menu] .btn.primary').textContent, skin: window.__gg.save.skin, lang: window.__gg.save.lang }));
+  const d = await p2.evaluate(() => ({ play: document.querySelector('.screen[data-name=menu] .btn.primary').textContent, skin: window.__gg.save.skin, lang: window.__gg.settings.lang }));
   check(d.play === 'Play' && d.lang === null, `новый игрок с нерусской системой (de-DE) видит английский: кнопка «${d.play}»`);
   check(d.skin === 'skin', `у нового игрока рука по умолчанию — светлая кожа («${d.skin}»)`);
   await p2.close();
@@ -302,10 +314,10 @@ const casino = await page.evaluate(async () => {
   const envK = () => { const m = g.items[0].material; return +(m.envMapIntensity / (m.userData.envBase ?? m.envMapIntensity)).toFixed(2); };   // у предмета своя копия материала
   out.dark = { spot: +g.stage.spot.intensity.toFixed(2), litSpot: +litSpot.toFixed(1), env: envK(), lights: g.stage.scene.children.filter((o) => o.isPointLight).length, state: g.state };
   // предупреждение: с миганием яркость скачет, в «плавном» режиме — только убывает
-  const warnValues = (noFlicker) => { g.save.noFlicker = noFlicker; g.startLevelById(28); g.hand.place(g.level.approach); const b = g.traps.find((t) => t.def.type === 'blackout'), v = []; for (let i = 0; i < 12 * 120 && b.state !== 'dark'; i++) { g._fixedStep(S); if (b.state === 'warn') v.push(b.k); } return v; };
+  const warnValues = (noFlicker) => { g.settings.noFlicker = noFlicker; g.startLevelById(28); g.hand.place(g.level.approach); const b = g.traps.find((t) => t.def.type === 'blackout'), v = []; for (let i = 0; i < 12 * 120 && b.state !== 'dark'; i++) { g._fixedStep(S); if (b.state === 'warn') v.push(b.k); } return v; };
   const jumps = (v) => v.filter((x, i) => i && x < v[i - 1] - 0.2).length;
   out.flicker = { on: jumps(warnValues(false)), smooth: jumps(warnValues(true)) };
-  g.save.noFlicker = false;
+  g.settings.noFlicker = false;
   g.startLevelById(1); g.hand.place(g.level.approach); settle();
   out.lightOff = { env: envK(), spot: +g.stage.spot.intensity.toFixed(1) };
   // бриллиант: выскальзывает на скорости, которую слиток выдерживает, и выпадает от удара о стекло
