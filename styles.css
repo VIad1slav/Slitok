@@ -59,6 +59,8 @@ kbd { font: 600 12px var(--ui); padding: 3px 8px; border: 1px solid rgba(255, 25
 .loadbar { height: 3px; background: rgba(255, 255, 255, 0.1); width: 220px; margin: 14px 0 10px; }
 .loadbar i { display: block; height: 100%; width: 0; background: var(--gold); transition: width 0.2s; }
 .screen[data-name="loading"] { background: #030304; align-content: center; justify-items: center; }
+.screen[data-name="loading"] .loadbar { width: 320px; margin: 22px 0 12px; }
+.loadpct { font-variant-numeric: tabular-nums; color: var(--gold); font-size: 13px; letter-spacing: 0.12em; margin-top: 6px; opacity: 0.8; }
 
 .hud { position: absolute; inset: 0; font-variant-numeric: tabular-nums; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9); }
 .hud .tl { position: absolute; left: 22px; top: 18px; display: grid; gap: 4px; min-width: 190px; }

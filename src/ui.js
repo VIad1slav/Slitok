@@ -34,6 +34,7 @@ export class UI {
   constructor(root, handlers, save) {
     this.root = root; this.h = handlers; this.save = save;
     this.screens = {};
+    this.root.innerHTML = '';     // убрать заставку из index.html
     this._build();
     this.hintTimer = 0; this.toastTimer = 0;
   }
@@ -43,6 +44,7 @@ export class UI {
     const open = Object.entries(this.screens).find(([, sc]) => !sc.hidden)?.[0], hud = !this.hud.hidden, back = this.controlsBack;
     this.root.innerHTML = ''; this.screens = {}; this._pips = null;
     this._build();
+    this.setLoading(this.loadP || 0);
     if (open) this.show(open);
     this.controlsBack = back; this.showHud(hud);
   }
@@ -53,7 +55,7 @@ export class UI {
   _build() {
     // --- загрузка
     const loading = this._screen('loading');
-    loading.append(el('div', 'title small', 'GOLDEN GRAB'), this.loadBar = el('div', 'loadbar', '<i></i>'), el('div', 'muted', t('loading.text')));
+    loading.append(el('div', 'title', 'GOLDEN <b>GRAB</b>'), this.loadBar = el('div', 'loadbar', '<i></i>'), this.loadText = el('div', 'muted', t('loading.text')), this.loadPct = el('div', 'loadpct', '0 %'));
 
     // --- главное меню
     const menu = this._screen('menu');
@@ -182,7 +184,7 @@ export class UI {
     }
   }
 
-  setLoading(p) { this.loadBar.firstChild.style.width = `${Math.round(p * 100)}%`; }
+  setLoading(p) { this.loadP = p; this.loadBar.firstChild.style.width = `${Math.round(p * 100)}%`; this.loadPct.textContent = `${Math.round(p * 100)} %`; }
 
   show(name) {
     if (name === 'menu') this.controlsBack = 'menu';

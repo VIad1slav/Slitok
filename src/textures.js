@@ -2,10 +2,11 @@
 // Сначала пробуем загрузить PNG, запечённые в Blender (assets/textures/*.png).
 // Если файла нет — рисуем ту же текстуру процедурно на Canvas 2D (запасной вариант).
 import * as THREE from 'three';
+import { manager } from './loading.js';
 
 const TEX_DIR = './assets/textures/';
 const FALLBACK_SIZE = 512;
-const loader = new THREE.TextureLoader();
+const loader = new THREE.TextureLoader(manager);
 
 // ---------------------------------------------------------------------------
 // Процедурный запасной вариант
@@ -257,13 +258,17 @@ function setup(tex, srgb, repeat) {
   return tex;
 }
 
-async function tryLoad(file) {
-  try { return await loader.loadAsync(TEX_DIR + file); } catch { return null; }
+// Текстура по имени без расширения: сначала .webp (лёгкий, им и пользуется игра), затем .png (исходник из Blender).
+// Нет ни того, ни другого — null, и материал получит текстуру, нарисованную кодом.
+export const textureReport = { png: [] };   // какие текстуры пришлось взять из PNG (в сборке таких быть не должно)
+async function tryLoad(name) {
+  try { return await loader.loadAsync(`${TEX_DIR}${name}.webp`); } catch { /* пробуем PNG */ }
+  try { const t = await loader.loadAsync(`${TEX_DIR}${name}.png`); textureReport.png.push(name); return t; } catch { return null; }
 }
 
 /** Набор PBR-карт: { map, normalMap, ormMap, fallback }. */
 export async function loadSet(name, repeat = 1) {
-  const [a, n, o] = await Promise.all([tryLoad(`${name}_albedo.png`), tryLoad(`${name}_normal.png`), tryLoad(`${name}_orm.png`)]);
+  const [a, n, o] = await Promise.all([tryLoad(`${name}_albedo`), tryLoad(`${name}_normal`), tryLoad(`${name}_orm`)]);
   if (a && n && o) return { map: setup(a, true, repeat), normalMap: setup(n, false, repeat), ormMap: setup(o, false, repeat), fallback: false, normalScale: 1 };
   const S = FALLBACK_SIZE, p = PROC[name](S);
   return {
@@ -275,7 +280,7 @@ export async function loadSet(name, repeat = 1) {
 }
 
 export async function loadGlassMaps() {
-  const [sm, c1, c2, c3] = await Promise.all(['glass_smudges.png', 'glass_cracks_1.png', 'glass_cracks_2.png', 'glass_cracks_3.png'].map(tryLoad));
+  const [sm, c1, c2, c3] = await Promise.all(['glass_smudges', 'glass_cracks_1', 'glass_cracks_2', 'glass_cracks_3'].map(tryLoad));
   const fallback = !(sm && c1 && c2 && c3);
   const smudges = setup(sm || canvasTex(procSmudges(FALLBACK_SIZE), false), false, 1);
   const cracks = [c1, c2, c3].map((t, i) => {
@@ -338,7 +343,7 @@ function pbr(set, extra = {}, physical = false) {
 export async function createMaterials() {
   const [gold, skin, glove, wood, concrete, tiles, velvet, glassMaps, vase, crown, gloveLight, felt, chips, dice] = await Promise.all([
     loadSet('gold'), loadSet('skin'), loadSet('glove'), loadSet('wood_table', 1), loadSet('wall_concrete', 1),
-    loadSet('floor_tiles', 1), loadSet('velvet_red', 1), loadGlassMaps(), loadSet('vase'), loadSet('crown'), tryLoad('glove_light_albedo.png'),
+    loadSet('floor_tiles', 1), loadSet('velvet_red', 1), loadGlassMaps(), loadSet('vase'), loadSet('crown'), tryLoad('glove_light_albedo'),
     loadSet('felt_green', 1), loadSet('chips'), loadSet('dice'),
   ]);
   const sets = { gold, skin, glove, wood, concrete, tiles, velvet, vase, crown, felt, chips, dice };

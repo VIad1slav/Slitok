@@ -1,0 +1,5 @@
+[
+  { "name": "hand_skin", "level": 2, "t": 4.2, "skin": "skin", "hud": false },
+  { "name": "hand_glove", "level": 3, "t": 7.0, "skin": "glove", "hud": false },
+  { "name": "bigbar", "level": 33, "t": 5.0, "skin": "skin", "hud": false }
+]

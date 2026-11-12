@@ -18,7 +18,8 @@
 </head>
 <body>
   <canvas id="c"></canvas>
-  <div id="ui"></div>
+  <!-- Заставка на первые мгновения, пока грузится код игры; дальше её заменяет экран загрузки с прогрессом. -->
+  <div id="ui"><div class="screen" data-name="loading"><div class="title">GOLDEN <b>GRAB</b></div><div class="loadbar"><i></i></div></div></div>
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>

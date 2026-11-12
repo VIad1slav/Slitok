@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { PHYS, HAND, GLASS, WORLD } from './config.js';
 import { LEVELS, starsFor, stageDef, stageCount } from './levels.js';
-import { createMaterials } from './textures.js';
+import { createMaterials, textureReport } from './textures.js';
+import { onLoadProgress } from './loading.js';
 import { loadModels } from './assets.js';
 import { Stage } from './scene.js';
 import { GlassBox, GROUP } from './box.js';
@@ -20,6 +21,8 @@ import { UI, loadSave, storeSave } from './ui.js';
 import { autopilotFor } from './autoplay.js';
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+/** Дать браузеру нарисовать кадр (полоска загрузки успевает обновиться). */
+const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 
 class Game {
   constructor() {
@@ -51,11 +54,15 @@ class Game {
     }, this.save);
     this.ui.show('loading');
 
-    const [{ models, missing }, mats] = await Promise.all([loadModels((p) => this.ui.setLoading(p * 0.7)), createMaterials()]);
+    // Экран загрузки висит, пока не загружены все текстуры и модели и не нарисован первый кадр:
+    // 90 % полоски — файлы, остальное — сборка сцены и компиляция шейдеров.
+    onLoadProgress((p) => this.ui.setLoading(p * 0.9));
+    const [{ models, missing }, mats] = await Promise.all([loadModels(), createMaterials()]);
     this.models = models; this.M = mats.M;
-    this.assetReport = { missingModels: missing, fallbackTextures: mats.fallbacks };
-    if (missing.length || mats.fallbacks.length) console.info('[Golden Grab] fallback assets:', this.assetReport);
-    this.ui.setLoading(0.9);
+    this.assetReport = { missingModels: missing, fallbackTextures: mats.fallbacks, pngTextures: textureReport.png };
+    if (missing.length || mats.fallbacks.length || textureReport.png.length) console.info('[Golden Grab] fallback assets:', this.assetReport);
+    this.ui.setLoading(0.92);
+    await nextFrame();
 
     this.stage = new Stage(document.getElementById('c'), this.M, models);
     this._initPhysics();
@@ -66,8 +73,11 @@ class Game {
 
     this.levelDef = LEVELS[0]; this.stageIndex = 0;
     this._loadLevel(LEVELS[0]);
-    this.state = 'menu';
+    // первый кадр рисуется ещё под экраном загрузки: здесь компилируются шейдеры, и меню появляется без рывка
+    this.hand.updateVisual(0); this.stage.update(0, 0, this.hand.pos, 0); this.stage.render();
     this.ui.setLoading(1);
+    await nextFrame();
+    this.state = 'menu';
     this.ui.show('menu');
     this._last = performance.now();
     requestAnimationFrame((t) => this._frame(t));

@@ -22,7 +22,7 @@ import { chromium } from 'playwright-core';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SHOTS = process.argv.includes('--shots');
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.glb': 'model/gltf-binary', '.json': 'application/json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp', '.glb': 'model/gltf-binary', '.json': 'application/json' };
 
 // Эталон: время автопилота (с) по id уровня. Симуляция детерминирована, поэтому расхождение значит,
 // что изменилась физика, уровень или сценарий автопилота. Меняя что-то из этого намеренно — обнови число.
@@ -83,6 +83,7 @@ const info = await page.evaluate(() => {
 });
 console.log('GPU:', info.renderer);
 check(info.report.missingModels.length === 0 && info.report.fallbackTextures.length === 0, `все модели и текстуры из Blender загружены (${JSON.stringify(info.report)})`);
+check(info.report.pngTextures.length === 0, `все текстуры взяты из WebP${info.report.pngTextures.length ? ', кроме: ' + info.report.pngTextures.join(', ') : ''}`);
 
 // --- сохранение и замки
 const sv = await page.evaluate(async () => {
@@ -166,6 +167,25 @@ check(overRu.length === 0, `русский текст помещается в к
   check(d.play === 'Play' && d.lang === null, `новый игрок с нерусской системой (de-DE) видит английский: кнопка «${d.play}»`);
   check(d.skin === 'skin', `у нового игрока рука по умолчанию — светлая кожа («${d.skin}»)`);
   await p2.close();
+}
+
+// экран загрузки: одна текстура нарочно приходит с задержкой — меню не должно появиться раньше неё
+{
+  const p3 = await browser.newPage({ viewport: { width: 1280, height: 720 }, locale: 'ru-RU' });
+  await offline(p3);
+  let release; const held = new Promise((r) => { release = r; });
+  await p3.route('**/gold_albedo.webp', async (route) => { await held; route.continue(); });
+  await p3.goto(url, { waitUntil: 'domcontentloaded' });
+  await p3.waitForFunction(() => window.__gg?.ui?.loadP > 0.3, null, { timeout: 60000 });
+  await p3.waitForTimeout(600);
+  const mid = await p3.evaluate(() => ({ state: window.__gg.state, p: window.__gg.ui.loadP, loading: !window.__gg.ui.screens.loading.hidden, menu: !window.__gg.ui.screens.menu.hidden, pct: window.__gg.ui.loadPct.textContent, title: document.querySelector('.screen[data-name=loading] .title').textContent }));
+  if (SHOTS) { mkdirSync(join(ROOT, 'docs', 'screens'), { recursive: true }); await p3.screenshot({ path: join(ROOT, 'docs', 'screens', 'loading.png') }); console.log('  скриншот loading'); }
+  release();
+  await p3.waitForFunction(() => window.__gg.state === 'menu', null, { timeout: 60000 });
+  const end = await p3.evaluate(() => ({ p: window.__gg.ui.loadP, menu: !window.__gg.ui.screens.menu.hidden }));
+  check(mid.state === 'loading' && mid.loading && !mid.menu && mid.p > 0.3 && mid.p < 0.9 && mid.title === 'GOLDEN GRAB' && end.p === 1 && end.menu,
+    `экран загрузки: пока не пришла последняя текстура, виден он (${mid.pct}, название «${mid.title}»), меню скрыто; после загрузки — меню`);
+  await p3.close();
 }
 
 if (SHOTS) {
