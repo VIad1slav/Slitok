@@ -1,0 +1,89 @@
+[
+  {
+    "name": "12_heists_menu",
+    "screen": "levels",
+    "lang": "en"
+  },
+  {
+    "name": "01_monkey_trap",
+    "level": 3,
+    "t": 7.0,
+    "skin": "skin",
+    "lang": "en"
+  },
+  {
+    "name": "02_museum_vase",
+    "level": 12,
+    "t": 3.4,
+    "skin": "skin",
+    "lang": "en"
+  },
+  {
+    "name": "03_museum_lasers",
+    "level": 16,
+    "frac": 0.45,
+    "skin": "glove_white",
+    "lang": "en"
+  },
+  {
+    "name": "04_bank_shutter",
+    "level": 21,
+    "frac": 0.75,
+    "skin": "skin",
+    "lang": "en"
+  },
+  {
+    "name": "05_bank_scales",
+    "level": 22,
+    "frac": 0.45,
+    "skin": "glove",
+    "lang": "en"
+  },
+  {
+    "name": "06_casino_diamond",
+    "level": 30,
+    "t": 4.5,
+    "skin": "skin",
+    "accessory": "ring",
+    "lang": "en"
+  },
+  {
+    "name": "07_casino_dice",
+    "level": 29,
+    "frac": 0.3,
+    "skin": "glove_green",
+    "lang": "en"
+  },
+  {
+    "name": "08_casino_blackout",
+    "level": 28,
+    "t": 2.0,
+    "dark": true,
+    "skin": "skin",
+    "lang": "en"
+  },
+  {
+    "name": "09_boss_collection",
+    "level": 36,
+    "frac": 0.2,
+    "skin": "glove_gold",
+    "lang": "en"
+  },
+  {
+    "name": "10_boss_big_bar",
+    "level": 33,
+    "t": 5.2,
+    "skin": "skin",
+    "accessory": "watch",
+    "lang": "en"
+  },
+  {
+    "name": "11_glass_shattered",
+    "level": 1,
+    "t": 3.0,
+    "skin": "skin",
+    "lang": "en",
+    "eval": "for (let i = 0; i < 3; i++) { g.lastHit = -9; g._glassContact('top', 2); } for (let i = 0; i < 30; i++) g._fixedStep(1 / 120);",
+    "wait": 250
+  }
+]
