@@ -81,16 +81,23 @@ if (!EXE) {
   check(p1.state === 'paused' && p2.time === p1.time && p1.time > t0 - 0.001, `потеря фокуса: игра на паузе (${p1.state}), время стоит (${p1.time.toFixed(2)} → ${p2.time.toFixed(2)} с)`);
   await page.evaluate(() => window.__gg.toMenu());
 
+  // Steam: если клиента нет, игра просто работает без него
+  const steam = await page.evaluate(() => window.desktop.steamStatus());
+  check(typeof steam.available === 'boolean', steam.available ? 'Steam найден: достижения будут отправляться' : `Steam не найден (${steam.reason}) — игра запустилась и работает без него`);
+  check(existsSync(join(ROOT, 'steam_appid.txt')), 'в режиме разработки рядом с проектом создан steam_appid.txt (в сборку он не попадает)');
+
   // уровень 1 автопилотом — то же, что в браузере
   const auto = await page.evaluate(() => window.__gg.autoTest(1, 60));
   check(auto.result === 'won', `уровень 1 проходится автопилотом в настольном окне: ${auto.result}, ${auto.time} с`);
+  const granted = await page.evaluate(() => Object.keys(window.__gg.save.achievements));
+  check(granted.includes('SPEEDRUN'), `достижение за победу выдано и отправлено в мост Steam без ошибок (${granted.join(', ')})`);
   await page.evaluate(() => { const g = window.__gg; g.endTimer = 0; g.endAction?.(); g.endAction = null; g.toMenu(); });
 
   // сохранение — файл JSON в папке данных, рядом настройки
   const saves = join(dir, 'saves'), saveFile = join(saves, 'save.json'), settingsFile = join(saves, 'settings.json');
   await page.evaluate(() => window.__gg.setLanguage('en')); await sleep(600);
   const onDisk = { save: readJson(saveFile), settings: readJson(settingsFile), files: existsSync(saves) ? readdirSync(saves) : [], dir: await page.evaluate(() => window.desktop.storeDir()) };
-  check(onDisk.save?.version === 4 && onDisk.save.best?.[1]?.stars >= 1 && onDisk.settings?.lang === 'en' && !onDisk.files.some((f) => f.endsWith('.tmp')),
+  check(onDisk.save?.version === 5 && onDisk.save.best?.[1]?.stars >= 1 && onDisk.settings?.lang === 'en' && !onDisk.files.some((f) => f.endsWith('.tmp')),
     `сохранение записано в файл: ${onDisk.dir}\\save.json (рекорд уровня 1: ${onDisk.save?.best?.[1]?.time} с), настройки — settings.json (язык ${onDisk.settings?.lang}); в папке: ${onDisk.files.join(', ')}`);
   await page.evaluate(() => window.__gg.setLanguage('ru')); await sleep(600);
 
@@ -114,7 +121,9 @@ if (!EXE) {
 
   // --- перезапуск: сохранение читается из файла; оконный режим запомнен
   {
-    const r = await launch({ release: false, dir });
+    const r = await launch({ release: false, dir, env: { GG_NO_STEAM: '1' } });   // заодно: запуск совсем без Steam
+    const noSteam = await r.page.evaluate(() => window.desktop.steamStatus());
+    check(noSteam.available === false && r.errors.length === 0, `без Steam (${noSteam.reason}) игра запускается, ошибок в консоли нет`);
     const st = await r.page.evaluate(() => ({ best: window.__gg.save.best, fullscreen: window.desktop.isFullscreen(), lang: window.__gg.settings.lang }));
     check(st.best[1]?.stars >= 1 && st.fullscreen === false && st.lang === 'ru', `после перезапуска рекорд на месте (уровень 1: ${st.best[1]?.time} с), окно открылось в запомненном режиме (полный экран: ${st.fullscreen})`);
     await quit(r.app, r.page); await sleep(500);

@@ -12,7 +12,8 @@
 //   4. общая модель добычи: уровень с двумя слитками, предметы-цилиндр и шар;
 //   5. физика: рука не проходит сквозь стекло, стекло бьётся, ловушка для обезьян держит;
 //   6. рука читается в кадре: пальцы отличаются от фона во всех пяти обстановках и в темноте;
-//   7. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
+//   7. достижения: правила выдачи и то, что игра сама сообщает о событиях;
+//   8. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
@@ -96,9 +97,9 @@ const sv = await page.evaluate(async () => {
     next: H.continueLevel(g.save).id,
   };
 });
-check(sv.version === 4 && JSON.stringify(sv.best) === JSON.stringify(OLD_SAVE.best) && sv.skin === 'glove' && sv.handSkin === 'glove' && sv.volume === 0.4,
+check(sv.version === 5 && JSON.stringify(sv.best) === JSON.stringify(OLD_SAVE.best) && sv.skin === 'glove' && sv.handSkin === 'glove' && sv.volume === 0.4,
   `старое сохранение прочитано без потерь (версия ${sv.version}, рекордов ${Object.keys(sv.best).length}, рука «${sv.skin}», громкость ${sv.volume})`);
-check(sv.stored.save?.version === 4 && JSON.stringify(sv.stored.save.best) === JSON.stringify(OLD_SAVE.best) && sv.stored.save.volume === undefined && sv.stored.settings?.volume === 0.4,
+check(sv.stored.save?.version === 5 && JSON.stringify(sv.stored.save.best) === JSON.stringify(OLD_SAVE.best) && sv.stored.save.volume === undefined && sv.stored.settings?.volume === 0.4,
   `старое сохранение сразу переписано в новом виде: прогресс отдельно, настройки отдельно (громкость ${sv.stored.settings?.volume})`);
 check(sv.lang === null && sv.shown === 'ru' && sv.title === 'Играть', `язык по умолчанию взят из системы (ru-RU → «${sv.shown}», кнопка «${sv.title}»), в старом сохранении язык не задан`);
 check(sv.stars === 6 && sv.open.join() === 'true,false,false,false,false' && sv.next === 9,
@@ -425,6 +426,42 @@ const handSeen = await page.evaluate(async () => {
 });
 for (const h of handSeen) check(h.lit >= 12, `рука в кадре, уровень ${h.id}${h.dark ? ' (темнота)' : ''}, ${h.skin === 'skin' ? 'кожа' : 'чёрная перчатка'}: отличие пальцев от фона ${h.lit} из 255 (без подсветки было бы ${h.plain})`);
 
+// --- достижения
+const ach = await page.evaluate(async () => {
+  const g = window.__gg, A = await import('/src/achievements.js'), H = await import('/src/heists.js'), out = {};
+  // 1) правила на «чистом» игроке
+  const save = { best: {}, achievements: {}, stats: {} }, unlocked = [];
+  const a = new A.Achievements(save, { onUnlock: (id) => unlocked.push(id) });
+  out.empty = a.sync().length;
+  out.slow = a.emit('win', { level: 1, time: 25, touches: 3, stars: 1 });
+  save.best[3] = { stars: 1, time: 60, touches: 5 }; out.monkey = a.emit('win', { level: 3, time: 60, touches: 5, stars: 1 });
+  out.fast = a.emit('win', { level: 2, time: 8.2, touches: 0, stars: 3 });
+  out.touched = a.emit('win', { level: 32, time: 40, touches: 1, stars: 2 });
+  out.clean = a.emit('win', { level: 32, time: 40, touches: 0, stars: 3 });
+  out.vase = a.emit('lootBroken', { type: 'vase' });
+  out.glass9 = []; for (let i = 0; i < 9; i++) out.glass9.push(...a.emit('glassBroken'));
+  out.glass10 = a.emit('glassBroken');
+  for (const id of H.HEISTS[0].levels) save.best[id] = { stars: 2, time: 30, touches: 2 };
+  out.heist = a.emit('win', { level: 11, time: 30, touches: 2, stars: 2 });
+  for (const id of H.HEISTS[0].levels) save.best[id].stars = 3;
+  out.heistStars = a.emit('win', { level: 11, time: 30, touches: 0, stars: 3 });
+  for (const h of H.HEISTS) for (const id of h.levels) save.best[id] = { stars: 3, time: 30, touches: 0 };
+  out.all = a.emit('win', { level: 40, time: 100, touches: 0, stars: 3 });
+  out.again = a.emit('win', { level: 40, time: 100, touches: 0, stars: 3 });
+  out.total = Object.keys(save.achievements).length; out.known = A.ACHIEVEMENTS.length; out.calls = unlocked.length; out.unique = new Set(unlocked).size;
+  // 2) что игра выдала сама за этот прогон (автопилот прошёл кампанию, проверки разбили вазу и стекло)
+  out.game = Object.keys(g.save.achievements).sort(); out.glassBroken = g.save.stats.glassBroken || 0;
+  out.stored = Object.keys(JSON.parse(localStorage.getItem('goldenGrab.v1')).achievements || {}).length;
+  return out;
+});
+check(ach.empty === 0 && ach.slow.length === 0 && ach.monkey.join() === 'MONKEY_TRAP' && ach.fast.join() === 'SPEEDRUN' && ach.touched.length === 0 && ach.clean.join() === 'NO_TOUCH' && ach.vase.join() === 'BREAK_VASE',
+  `достижения по событиям: «Ловушка для обезьян» → ${ach.monkey}, уровень за 8,2 с → ${ach.fast}, «Джекпот» без касаний → ${ach.clean} (с одним касанием — нет), разбитая ваза → ${ach.vase}`);
+check(ach.glass9.length === 0 && ach.glass10.join() === 'GLASS_BREAKER' && ach.heist.join() === 'HEIST_PAWNSHOP' && ach.heistStars.join() === 'STARS_PAWNSHOP',
+  `достижения по прогрессу: стекло разбито 10 раз → ${ach.glass10}, Ломбард пройден → ${ach.heist}, все звёзды Ломбарда → ${ach.heistStars}`);
+check(ach.total === ach.known && ach.again.length === 0 && ach.calls === ach.unique && ach.calls === ach.known, `все ${ach.known} достижений получаемы, каждое выдаётся один раз (выдано ${ach.calls})`);
+check(['ALL_LEVELS', 'BREAK_VASE', 'HEIST_BOSS', 'HEIST_PAWNSHOP', 'MONKEY_TRAP', 'SPEEDRUN'].every((id) => ach.game.includes(id)) && ach.stored === ach.game.length,
+  `игра сама выдала за этот прогон ${ach.game.length} достижений (${ach.game.join(', ')}) — всё записано в сохранение`);
+
 // --- общая модель добычи
 const loot = await page.evaluate(async () => {
   const g = window.__gg, { LOOT } = await import('/src/loot-types.js'), { LEVELS } = await import('/src/levels.js');
@@ -462,7 +499,7 @@ const phys = await page.evaluate(() => {
   out.wall = { lowest: +minY.toFixed(4), glassTop: top, touches: g.touches, damage: g.box.damage };
   // продолжаем бить — стекло должно разбиться
   for (let k = 0; k < 8 && g.state === 'playing'; k++) { run(0.7, () => h.target.set(-0.2, 1.5, -0.1)); run(0.7, () => h.target.set(-0.2, 0.95, -0.1)); }
-  out.broken = { result: g.result, broken: g.box.broken };
+  out.broken = { result: g.result, broken: g.box.broken, counted: g.save.stats.glassBroken || 0 };
   // уровень 3: хватаем слиток поперёк и тянем наружу
   g.startLevelById(3); g.hand.place(g.level.approach);
   const bar = g.items[0], b = bar.position().clone(), yG = b.y + 0.0225 + 0.022, V = h.target.constructor;
@@ -482,7 +519,7 @@ const phys = await page.evaluate(() => {
   return out;
 });
 check(phys.wall.lowest > phys.wall.glassTop - 0.004, `рука не прошла сквозь стекло (низ руки ${phys.wall.lowest} м, верх стекла ${phys.wall.glassTop.toFixed(3)} м, касаний ${phys.wall.touches})`);
-check(phys.broken.broken && /Стекло/.test(phys.broken.result || ''), `стекло разбивается от сильных ударов (${phys.broken.result})`);
+check(phys.broken.broken && /Стекло/.test(phys.broken.result || '') && phys.broken.counted >= 1, `стекло разбивается от сильных ударов (${phys.broken.result}); счётчик разбитого стекла для достижения: ${phys.broken.counted}`);
 check(phys.monkey.held && phys.monkey.barZ < phys.monkey.wallZ, `ловушка для обезьян: слиток поперёк не вышел (z = ${phys.monkey.barZ}, стенка ${phys.monkey.wallZ.toFixed(2)})`);
 check(phys.drop.inside && phys.drop.y > 0.9, `брошенный слиток остался внутри коробки (y = ${phys.drop.y})`);
 

@@ -113,6 +113,8 @@ for (const l of LEVELS) {
 for (const h of HEISTS) need.push(`heist.${h.id}.name`, `heist.${h.id}.tagline`);
 for (const [id, type] of Object.entries(LOOT)) { need.push(`loot.${id}.name`, `loot.${id}.fall`); if (type.fragile) need.push(`loot.${id}.broken`); }
 for (const c of COSMETICS) need.push(`cosmetic.${c.id}`);
+const { ACHIEVEMENTS } = await import('../src/achievements.js');
+for (const a of ACHIEVEMENTS) need.push(`ach.${a.id}.name`, `ach.${a.id}.desc`);
 for (const k of need) if (!(k in en)) bad(`нет ключа «${k}», который нужен игре`);
 
 // ключи, запрошенные в коде напрямую: t('…') / tList('…')
@@ -122,7 +124,7 @@ for (const file of files) {
   for (const m of src.matchAll(/\b(?:t|tList|tPick|say)\(\s*'([\w.]+)'/g)) { used.add(m[1]); if (!(m[1] in en)) bad(`${relative(ROOT, file)}: запрошен ключ «${m[1]}», которого нет в словаре`); }
 }
 const prefixes = [...new Set([...files].flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/\b(?:t|tList|tPick|say)\(\s*`([\w.]+)\$\{/g)].map((m) => m[1])))];
-const unused = Object.keys(en).filter((k) => !used.has(k) && !prefixes.some((p) => k.startsWith(p)));
+const unused = Object.keys(en).filter((k) => !used.has(k) && !prefixes.some((p) => k.startsWith(p)) && !k.startsWith('ach.'));   // тексты достижений нужны Steamworks, а не игре
 if (unused.length) console.log(`  инфо ключи без прямого обращения в коде (${unused.length}): ${unused.slice(0, 12).join(', ')}${unused.length > 12 ? '…' : ''}`);
 
 console.log(`  инфо ключей в словарях: en ${Object.keys(en).length}, ru ${Object.keys(ru).length}`);

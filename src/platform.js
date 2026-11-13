@@ -57,6 +57,12 @@ export const platform = {
 
   quit() { store.flush(); d?.quit(); },
 
+  // --- Steam (только настольное приложение; в браузере и без запущенного Steam — ничего не происходит)
+  /** { available, reason } — найден ли Steam при запуске. */
+  steamStatus() { try { return d ? d.steamStatus() : { available: false, reason: 'browser' }; } catch { return { available: false, reason: 'error' }; } },
+  /** Отправить в Steam полученные достижения (имена из src/achievements.js). Повторная отправка безвредна. */
+  unlockAchievements(ids) { try { if (d && ids.length) d.steamUnlock(ids); } catch { /* Steam необязателен */ } },
+
   // --- окно
   canFullscreen: !!d || (typeof document !== 'undefined' && !!document.documentElement?.requestFullscreen),
   isFullscreen() { return d ? d.isFullscreen() : !!document.fullscreenElement; },

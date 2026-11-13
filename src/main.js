@@ -21,6 +21,7 @@ import { UI } from './ui.js';
 import { loadAll, storeSave, storeSettings } from './save.js';
 import { autopilotFor } from './autoplay.js';
 import { platform } from './platform.js';
+import { Achievements } from './achievements.js';
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 /** Дать браузеру нарисовать кадр (полоска загрузки успевает обновиться). */
@@ -39,6 +40,10 @@ class Game {
     this.save = data.save; this.settings = data.settings;
     if (data.notes.save || data.notes.settings) console.info('[Golden Grab] player files were damaged:', data.notes);   // 'restored' — взята запасная копия, 'reset' — начато заново
     setLang(this.settings.lang);        // null — язык системы
+    // Достижения: запоминаются в сохранении и отправляются в Steam, если он есть. При запуске всё полученное
+    // отправляется заново — на случай, если раньше играли без Steam.
+    this.achievements = new Achievements(this.save, { onUnlock: (id) => platform.unlockAchievements([id]), onChange: () => storeSave(this.save) });
+    platform.unlockAchievements(this.achievements.sync());
     this.audio = new AudioSys();
     this.audio.volume = this.settings.volume;
   }
@@ -234,6 +239,7 @@ class Game {
     const prev = this.save.best[level.id];
     const record = !prev || starsCount > prev.stars || (starsCount === prev.stars && time < prev.time);
     if (record) { this.save.best[level.id] = { stars: starsCount, time: +time.toFixed(2), touches }; storeSave(this.save); }
+    this.achievements.emit('win', { level: level.id, time, touches, stars: starsCount });
     this.state = 'ending'; this.endTimer = 0.7; this.result = 'won';
     this.audio.sirenStop(); this.stage.setAlarm(false); this.alarmState = null;
     this.audio.win();
@@ -258,6 +264,7 @@ class Game {
       if (broken) {
         this.audio.glassBreak();
         this._refreshStatics();
+        if (this.state === 'playing') this.achievements.emit('glassBroken');
         this.fail(t('fail.glass'));
       }
     }
@@ -271,6 +278,7 @@ class Game {
       if (this.hand.item === item) this.hand.release('open');
       this.audio.glassBreak();
       this.shards.push(spawnShards(this.stage.scene, item.position(), item.type.bounds, item.material.color));
+      if (this.state === 'playing') this.achievements.emit('lootBroken', { type: item.type.id });
       this.fail(lootBroken(item.type));
     }
   }

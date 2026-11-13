@@ -26,5 +26,8 @@
   },
   "productName": "Golden Grab",
   "author": "Golden Grab",
-  "main": "electron/main.js"
+  "main": "electron/main.js",
+  "dependencies": {
+    "steamworks.js": "0.4.0"
+  }
 }
