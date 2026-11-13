@@ -21,11 +21,21 @@ import { platform } from './platform.js';
 export const SAVE_VERSION = 5;
 export const SETTINGS_VERSION = 1;
 
+export const QUALITY_LEVELS = ['low', 'medium', 'high'];
+export const FPS_LIMITS = [0, 30, 60, 120];
+
 export const SAVE_DEFAULTS = { version: SAVE_VERSION, best: {}, skin: 'skin', accessory: null, achievements: {}, stats: {} };
 export const SETTINGS_DEFAULTS = {
   version: SETTINGS_VERSION,
   lang: null,            // null — язык системы
   volume: 0.7,           // громкость эффектов, 0..1
+  music: 0.7,            // громкость фона («музыка и фон»), 0..1
+  quality: null,         // качество графики: 'low' | 'medium' | 'high' (см. QUALITY в src/scene.js); null — ещё не выбрано,
+                         // при первом запуске игра подберёт его сама по скорости видеокарты
+  fpsLimit: 0,           // предел кадров в секунду; 0 — по частоте экрана (VSync)
+  showFps: false,        // счётчик кадров в углу
+  sensitivity: 1,        // множитель чувствительности мыши, 0.3..2.5
+  invertDepth: false,    // поменять местами «вперёд» и «назад» (колесо и W/S)
   noFlicker: false,      // true — свет перед темнотой гаснет плавно, без мигания
   fullscreen: true,      // настольное приложение: открываться на весь экран
 };
@@ -58,6 +68,12 @@ export function migrateSettings(raw, legacy = null) {
   const s = { ...SETTINGS_DEFAULTS };
   s.lang = LANGS.includes(src.lang) ? src.lang : null;                    // неизвестный язык → язык системы
   s.volume = num(src.volume, 0, 1, s.volume);
+  s.music = num(src.music, 0, 1, s.music);
+  if (QUALITY_LEVELS.includes(src.quality)) s.quality = src.quality;
+  if (FPS_LIMITS.includes(src.fpsLimit)) s.fpsLimit = src.fpsLimit;
+  s.showFps = src.showFps === true;
+  s.sensitivity = num(src.sensitivity, 0.3, 2.5, s.sensitivity);
+  s.invertDepth = src.invertDepth === true;
   s.noFlicker = src.noFlicker === true;
   if (typeof src.fullscreen === 'boolean') s.fullscreen = src.fullscreen;
   return s;

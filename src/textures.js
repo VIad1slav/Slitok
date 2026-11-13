@@ -412,5 +412,7 @@ export async function createMaterials() {
   for (const k of ['map', 'normalMap', 'ormMap']) velvet[k].repeat.set(6, 6);
   for (const k of ['map', 'normalMap', 'ormMap']) felt[k].repeat.set(2, 2);
 
+  // Блестящие материалы: на «низком» качестве отражения окружения остаются только у них (см. Stage._applyEnv).
+  for (const k of ['gold', 'crown', 'brass', 'metal', 'steel', 'steelTable', 'diamond', 'glass', 'glassEdge', 'vase', 'chips', 'dice']) if (M[k]) M[k].userData.reflective = true;
   return { M, sets, glassMaps, fallbacks };
 }

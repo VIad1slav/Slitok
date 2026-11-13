@@ -197,10 +197,11 @@ console.log(EXE ? `Собранное приложение: ${EXE}` : 'Режи�
   {
     const saves = join(dir, 'saves');
     const clickBtn = (re) => page.evaluate((src) => { const b = [...document.querySelectorAll('.screen[data-name=menu] .btn')].find((x) => new RegExp(src).test(x.textContent)); b?.click(); return !!b; }, re);
-    await clickBtn('^(Рука|Hand)'); await clickBtn('^(Язык|Language)'); await sleep(700);
+    const clickLang = () => page.evaluate(() => document.querySelector('.setrow[data-key=lang] .btn').click());   // строка «Язык» на экране настроек
+    await clickBtn('^(Рука|Hand)'); await clickLang(); await sleep(700);
     const save = readJson(join(saves, 'save.json')), settings = readJson(join(saves, 'settings.json'));
     check(save?.skin === 'glove' && ['en', 'ru'].includes(settings?.lang), `файлы игрока пишутся: ${join(info.userData, 'saves')} — save.json (рука «${save?.skin}»), settings.json (язык ${settings?.lang})`);
-    await clickBtn('^(Рука|Hand)'); await clickBtn('^(Язык|Language)'); await sleep(400);
+    await clickBtn('^(Рука|Hand)'); await clickLang(); await sleep(400);
   }
 
   // DevTools, F12, Ctrl+R: страница не должна перезагрузиться, DevTools — открыться

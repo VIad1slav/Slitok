@@ -18,13 +18,14 @@ import { Hand } from './hand.js';
 import { Pedestal, createTraps } from './traps.js';
 import { AudioSys } from './audio.js';
 import { UI } from './ui.js';
-import { loadAll, storeSave, storeSettings } from './save.js';
+import { loadAll, storeSave, storeSettings, migrateSettings } from './save.js';
 import { autopilotFor } from './autoplay.js';
 import { platform } from './platform.js';
 import { Achievements } from './achievements.js';
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 /** Дать браузеру нарисовать кадр (полоска загрузки успевает обновиться). */
+const limitedBelow50 = (limit) => limit > 0 && limit < 50;
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 
 class Game {
@@ -45,7 +46,7 @@ class Game {
     this.achievements = new Achievements(this.save, { onUnlock: (id) => platform.unlockAchievements([id]), onChange: () => storeSave(this.save) });
     platform.unlockAchievements(this.achievements.sync());
     this.audio = new AudioSys();
-    this.audio.volume = this.settings.volume;
+    this.audio.volume = this.settings.volume; this.audio.music = this.settings.music;
   }
 
   async init() {
@@ -58,10 +59,9 @@ class Game {
       menu: () => this.toMenu(),
       skin: (id) => this.hand.setSkin(cosmeticById(id)),
       accessory: (id) => this.hand.setAccessory(id ? cosmeticById(id) : null, this.models),
-      volume: (v) => this.audio.setVolume(v),
       language: (lang) => this.setLanguage(lang),
       quit: () => platform.quit(),
-      fullscreen: (on) => platform.setFullscreen(on),
+      settings: (change) => this.applySettings(change),
     }, this.save, this.settings);
     this.ui.show('loading');
 
@@ -76,6 +76,7 @@ class Game {
     await nextFrame();
 
     this.stage = new Stage(document.getElementById('c'), this.M, models);
+    this.stage.setQuality(this.settings.quality || 'high');
     this._initPhysics();
     this.hand = new Hand({ scene: this.stage.scene, world: this.world, M: this.M, glbScene: models.hand });
     this.hand.setSkin(cosmeticById(this.save.skin));
@@ -86,6 +87,7 @@ class Game {
     this._loadLevel(LEVELS[0]);
     // первый кадр рисуется ещё под экраном загрузки: здесь компилируются шейдеры, и меню появляется без рывка
     this.hand.updateVisual(0); this.stage.update(0, 0, this.hand.pos, 0); this.stage.render();
+    if (!this.settings.quality) { this.settings.quality = this._pickQuality(); storeSettings(this.settings); }
     this.ui.setLoading(1);
     await nextFrame();
     this.state = 'menu';
@@ -180,6 +182,43 @@ class Game {
     this.startLevelDef(this.levelDef, this.stageIndex + 1, { time: this.time, touches: this.touches });
     this.ui.fade(); this.toast(t('toast.stage', { i: this.stageIndex + 1, n }));
     if (auto) { this.autopilot = autopilotFor(this); this.autoOn = true; this.timeScale = scale; }
+  }
+
+  /**
+   * Первый запуск: подобрать качество графики по скорости видеокарты. Рисуется несколько кадров на «высоком»,
+   * затем на «среднем»; выбирается самое красивое, при котором кадр укладывается в запас для 60 кадров в секунду.
+   * Игрок может поменять выбор в настройках.
+   */
+  _pickQuality() {
+    const gl = this.stage.renderer.getContext(), px = new Uint8Array(4);
+    const frameMs = () => {
+      const run = (n) => { const a = performance.now(); for (let i = 0; i < n; i++) { this.stage.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); } return (performance.now() - a) / n; };
+      run(2); return run(4);
+    };
+    const BUDGET_MS = 9;      // кадр отрисовки не дольше 9 мс: остаётся запас на физику и на сцены тяжелее первой
+    let pick = 'low';
+    for (const q of ['high', 'medium']) { this.stage.setQuality(q); if (frameMs() <= BUDGET_MS) { pick = q; break; } }
+    this.stage.setQuality(pick);
+    this.qualityPicked = pick;
+    return pick;
+  }
+
+  /**
+   * Изменить настройки: change — { имя: значение } (имена — SETTINGS_DEFAULTS в src/save.js).
+   * Значения проверяются, применяются сразу и записываются.
+   */
+  applySettings(change) {
+    const before = { ...this.settings };
+    Object.assign(this.settings, migrateSettings({ ...this.settings, ...change }));
+    this.settings.quality ??= before.quality;          // недопустимое значение качества не сбрасывает выбранное
+    const s = this.settings, changed = (k) => s[k] !== before[k];
+    if (changed('quality')) { this.stage?.setQuality(s.quality); this._lowFpsTime = 0; }
+    if (changed('volume')) this.audio.setVolume(s.volume);
+    if (changed('music')) this.audio.setMusicVolume(s.music);
+    if ('fullscreen' in change && s.fullscreen !== platform.isFullscreen()) platform.setFullscreen(s.fullscreen);
+    if (changed('lang')) return this.setLanguage(s.lang);
+    storeSettings(s);
+    this.ui.syncSettings();
   }
 
   /** Сменить язык: тексты интерфейса строятся заново, уровень и его состояние не трогаются. */
@@ -314,12 +353,13 @@ class Game {
       if (this.state !== 'playing' || !locked()) return;
       const dx = e.movementX || 0, dy = e.movementY || 0;
       // ПКМ + мышь направляет кисть: влево-вправо — поворот, вверх-вниз — наклон; скручивание запястья — Q/E
-      if (this.rmb) this.hand.rotate(-dy * HAND.rotSens, 0, -dx * HAND.rotSens);
-      else this.hand.moveTarget(dx * HAND.mouseSens, -dy * HAND.mouseSens, 0);
+      const k = this.settings.sensitivity;   // чувствительность мыши из настроек
+      if (this.rmb) this.hand.rotate(-dy * HAND.rotSens * k, 0, -dx * HAND.rotSens * k);
+      else this.hand.moveTarget(dx * HAND.mouseSens * k, -dy * HAND.mouseSens * k, 0);
     });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      if (this.state === 'playing') this.hand.moveTarget(0, 0, Math.sign(e.deltaY) * HAND.wheelStep);
+      if (this.state === 'playing') this.hand.moveTarget(0, 0, Math.sign(e.deltaY) * HAND.wheelStep * this._depthSign());
     }, { passive: false });
     document.addEventListener('pointerlockchange', () => {
       if (locked()) this.hadLock = true;
@@ -339,15 +379,18 @@ class Game {
     const away = () => { this.keys.clear(); this.rmb = false; this.hand.setGrip(false); if (!this.autopilot) this.pause(); };
     window.addEventListener('blur', away);
     document.addEventListener('visibilitychange', () => { if (document.hidden) away(); });
-    platform.onFullscreen((on) => { this.settings.fullscreen = on; storeSettings(this.settings); this.ui.setFullscreen(on); });
+    platform.onFullscreen((on) => { this.settings.fullscreen = on; storeSettings(this.settings); this.ui.syncSettings(); });
     // в сборке для игроков контекстного меню нет нигде
     if (platform.isDesktop && !platform.dev) window.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  /** Настройка «инверсия вперёд-назад»: −1 меняет местами направления колеса и клавиш W/S. */
+  _depthSign() { return this.settings.invertDepth ? -1 : 1; }
+
   _applyKeys(dt) {
-    const k = this.keys;
-    if (k.has('KeyW')) this.hand.moveTarget(0, 0, -HAND.keySpeed * dt);
-    if (k.has('KeyS')) this.hand.moveTarget(0, 0, HAND.keySpeed * dt);
+    const k = this.keys, sign = this._depthSign();
+    if (k.has('KeyW')) this.hand.moveTarget(0, 0, -HAND.keySpeed * dt * sign);
+    if (k.has('KeyS')) this.hand.moveTarget(0, 0, HAND.keySpeed * dt * sign);
     if (k.has('KeyQ')) this.hand.rotate(0, HAND.twistSpeed * dt);
     if (k.has('KeyE')) this.hand.rotate(0, -HAND.twistSpeed * dt);
   }
@@ -419,6 +462,9 @@ class Game {
 
   _frame(now) {
     requestAnimationFrame((t) => this._frame(t));
+    // предел кадров из настроек: лишние кадры пропускаются целиком (ни физики, ни отрисовки)
+    const limit = this.settings.fpsLimit;
+    if (limit > 0 && now - this._last < 1000 / limit - 1) return;
     const dt = Math.min(0.1, (now - this._last) / 1000);
     this._last = now; this.clock += dt;
     this._trackFps(dt);
@@ -478,9 +524,11 @@ class Game {
     this._fpsAcc += dt; this._fpsFrames++;
     if (this._fpsAcc < 1) return;
     this.fps = this._fpsFrames / this._fpsAcc; this._fpsAcc = 0; this._fpsFrames = 0;
+    this.ui.setFps(this.settings.showFps ? this.fps : null);
     if (document.hidden) return;
     this._lowFpsTime = this.fps < 50 ? this._lowFpsTime + 1 : 0;
-    if (this._lowFpsTime >= 3 && this.stage.pixelRatio > 0.75) { this.stage.setPixelRatio(Math.max(0.75, this.stage.pixelRatio - 0.25)); this._lowFpsTime = 0; }
+    if (limitedBelow50(this.settings.fpsLimit)) return;   // игрок сам ограничил кадры ниже порога — это не просадка
+    if (this._lowFpsTime >= 3 && this.stage.pixelRatio > 0.5) { this.stage.setPixelRatio(Math.max(0.5, this.stage.pixelRatio - 0.25)); this._lowFpsTime = 0; }
   }
 }
 

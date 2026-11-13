@@ -121,3 +121,14 @@ kbd { font: 600 12px var(--ui); padding: 3px 8px; border: 1px solid rgba(255, 25
 /* --- затемнение при смене этапа --- */
 .vignette.fade { animation: stagefade 0.8s ease-out; }
 @keyframes stagefade { 0% { background: rgba(0, 0, 0, 1); } 100% { background: rgba(0, 0, 0, 0); } }
+
+/* --- настройки */
+.setrows { display: grid; gap: 6px; margin: 2px 0 6px; }
+.setrow { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 14px; align-items: center; min-height: 38px; }
+.setlabel { font-size: 14px; color: var(--muted); }
+.setrow .btn.val { padding: 8px 14px; text-align: left; }
+.setslider { display: grid; grid-template-columns: 1fr 58px; gap: 10px; align-items: center; padding: 0 2px 0 14px; }
+.setslider input { width: 100%; accent-color: var(--gold); }
+.setvalue { font-size: 13px; color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+.fpsbox { position: absolute; right: 12px; bottom: 10px; font-size: 12px; letter-spacing: 0.08em; color: var(--gold); opacity: 0.85; font-variant-numeric: tabular-nums; pointer-events: none; }
+@media (max-width: 560px) { .setrow { grid-template-columns: 1fr; gap: 2px; } }

@@ -24,6 +24,23 @@ export const LIGHT = {
   maxPixelRatio: 2,
 };
 
+// Качество графики (настройка игрока).
+//   pixelRatio — предел разрешения рендера относительно окна; shadows — сторона карты теней (0 — теней нет);
+//   post — постобработка (сглаживание MSAA и свечение bloom), samples — число выборок MSAA;
+//   glass — настоящее стекло с преломлением (рисует сцену дважды — самое дорогое место кадра) или простое прозрачное;
+//   dust — пылинки и конус луча; rim — контровой свет сзади;
+//   env — отражения окружения: 'all' — на всех материалах, 'metal' — только на металле, стекле и камнях
+//         (на стенах, столе и полу они почти не видны, а на слабой видеокарте стоят трети кадра).
+// «Низкое» рассчитано на встроенную графику: без теней, без постобработки, стекло простое, 75 % разрешения.
+// «Среднее» — тени и свечение есть, но стекло простое: именно преломление в стекле стоит дороже всего остального.
+// Замеры по уровням и видеокартам — docs/quality_perf.md (собирает tools/test/quality.mjs).
+export const QUALITY = {
+  low: { pixelRatio: 0.75, shadows: 0, post: false, samples: 0, glass: false, dust: false, rim: false, env: 'metal', fillBoost: 1.7 },   // fillBoost — заполняющий свет ярче взамен отражений окружения
+  medium: { pixelRatio: 1, shadows: 1024, post: true, samples: 2, glass: false, dust: true, rim: true, env: 'all' },
+  high: { pixelRatio: 2, shadows: 2048, post: true, samples: 4, glass: true, dust: true, rim: true, env: 'all' },
+};
+export const QUALITY_NAMES = Object.keys(QUALITY);
+
 // Сколько остаётся в полной темноте (ловушка «перебои со светом»): доля отражений окружения на материалах
 // и доля яркости ламп и неона обстановки. Торцы стекла, круг «сейфа», лазеры и индикаторы ловушек не гаснут.
 export const DARK = { env: 0.06, glow: 0.12 };
@@ -42,6 +59,7 @@ export class Stage {
   constructor(canvas, M, models) {
     this.M = M;
     const renderer = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    this.qualityName = 'high'; this.quality = QUALITY.high;
     this.pixelRatio = Math.min(window.devicePixelRatio || 1, LIGHT.maxPixelRatio);
     renderer.setPixelRatio(this.pixelRatio);
     renderer.shadowMap.enabled = true;
@@ -54,7 +72,7 @@ export class Stage {
     scene.background = new THREE.Color(0x030304);
     scene.fog = new THREE.FogExp2(0x050506, 0.09);
     const pmrem = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; // отражения на золоте и стекле
+    this.envMap = scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; // отражения на золоте и стекле
     pmrem.dispose();
 
     this.camera = new THREE.PerspectiveCamera(WORLD.fov, 1, 0.03, 30);
@@ -72,15 +90,62 @@ export class Stage {
     this.setTheme(null);
 
     // Постобработка: MSAA-буфер → bloom (свечение золота и ламп) → тонмаппинг + sRGB.
-    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 });
+    this._buildComposer(QUALITY.high.samples);
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+  }
+
+  _buildComposer(samples) {
+    const renderer = this.renderer, size = renderer.getDrawingBufferSize(new THREE.Vector2());
+    this.composer?.dispose?.(); this.bloom?.dispose?.();
+    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples });
     this.composer = new EffectComposer(renderer, rt);
-    this.composer.addPass(new RenderPass(scene, this.camera));
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), LIGHT.bloom.strength, LIGHT.bloom.radius, LIGHT.bloom.threshold);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
+    this.samples = samples;
+  }
+
+  /** Применить качество графики: 'low' | 'medium' | 'high' (см. QUALITY). Можно менять на ходу. */
+  setQuality(name) {
+    const q = QUALITY[name] ? QUALITY[name] : QUALITY.high;
+    this.qualityName = QUALITY[name] ? name : 'high'; this.quality = q;
+    const renderer = this.renderer, spot = this.spot, M = this.M;
+    // тени
+    const on = q.shadows > 0;
+    if (renderer.shadowMap.enabled !== on || (on && spot.shadow.mapSize.x !== q.shadows)) {
+      renderer.shadowMap.enabled = on; spot.castShadow = on;
+      if (on) { spot.shadow.mapSize.set(q.shadows, q.shadows); spot.shadow.map?.dispose(); spot.shadow.map = null; }
+      renderer.shadowMap.needsUpdate = true;
+      this.scene.traverse((o) => { if (o.material) for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.needsUpdate = true; });
+    }
+    // стекло: настоящее (преломление) или простое прозрачное
+    const g = M.glass;
+    if (g.userData.full === undefined) g.userData.full = { transmission: g.transmission, roughness: g.roughness, roughnessMap: g.roughnessMap, opacity: g.opacity, transparent: g.transparent };
+    if (q.glass) Object.assign(g, g.userData.full); else Object.assign(g, { transmission: 0, roughness: 0.08, roughnessMap: null, opacity: 0.1, transparent: true });
+    g.needsUpdate = true;
+    // отражения окружения и контровой свет
+    this._applyEnv();
+    if (this.rim.visible !== q.rim) { this.rim.visible = q.rim; this.scene.traverse((o) => { if (o.material) for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.needsUpdate = true; }); }
+    // постобработка, пыль, разрешение
+    if (q.post && this.samples !== q.samples) this._buildComposer(q.samples);
+    this.dust.visible = q.dust; this.cone.visible = q.dust;
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, q.pixelRatio);
     this.resize();
-    window.addEventListener('resize', () => this.resize());
+  }
+
+  /**
+   * Отражения окружения по текущему качеству. В режиме 'metal' общая карта окружения выключена, а блестящие
+   * материалы (помечены userData.reflective в src/textures.js) получают её лично. Вызывается и после загрузки уровня:
+   * у предметов добычи свои копии материалов.
+   */
+  _applyEnv() {
+    const metalOnly = this.quality.env === 'metal';
+    this.scene.environment = metalOnly ? null : this.envMap;
+    const fix = (m) => { const want = metalOnly && m.userData?.reflective ? this.envMap : null; if (m.envMap !== want && 'envMap' in m) { m.envMap = want; m.needsUpdate = true; } };
+    for (const m of Object.values(this.M)) { if (Array.isArray(m)) m.forEach(fix); else if (m?.isMaterial) fix(m); }
+    this.scene.traverse((o) => { if (o.material) for (const m of Array.isArray(o.material) ? o.material : [o.material]) fix(m); });
   }
 
   resize() {
@@ -249,6 +314,7 @@ export class Stage {
     this.sideBlend = this.sideTarget = 0; this.sideUses = WORLD.sideCam.uses;
     this.watch = 0; this.watchK = 0; this.dark = 0; this.darkK = 0;
     this.setAlarm(false);
+    this._applyEnv();
   }
 
   /** Клавиша C. Возвращает false, если попытки кончились. */
@@ -333,7 +399,7 @@ export class Stage {
     // камера наблюдения смотрит — заполняющий свет краснеет (значение watch ставит ловушка)
     this.watchK += ((this.watch || 0) - this.watchK) * (1 - Math.exp(-10 * dt));
     this.fill.color.copy(this.fillSky).lerp(_red, this.watchK * 0.85);
-    this.fill.intensity = this.fillBase * (1 + this.watchK * 2.2);
+    this.fill.intensity = this.fillBase * (1 + this.watchK * 2.2) * (this.quality.fillBoost || 1);
     // темнота (значение dark 0..1 ставит ловушка): гаснут прожектор, контровой и почти весь заполняющий свет,
     // остаются светящиеся торцы стекла, круг «сейфа», лазеры и индикаторы ловушек
     this.darkK += ((this.dark || 0) - this.darkK) * (1 - Math.exp(-30 * dt));
@@ -345,7 +411,7 @@ export class Stage {
     HAND_LIGHT.rim.value = HAND_GLOW.rim * (HAND_GLOW.darkRim + (1 - HAND_GLOW.darkRim) * lit);
   }
 
-  render() { this.composer.render(); }
+  render() { if (this.quality.post) this.composer.render(); else this.renderer.render(this.scene, this.camera); }
 }
 
 const _red = new THREE.Color(0xff2010);

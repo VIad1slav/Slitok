@@ -1,0 +1,12 @@
+[
+  {
+    "name": "settings_ru",
+    "screen": "settings",
+    "lang": "ru"
+  },
+  {
+    "name": "settings_en",
+    "screen": "settings",
+    "lang": "en"
+  }
+]

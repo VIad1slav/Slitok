@@ -13,7 +13,8 @@
 //   5. физика: рука не проходит сквозь стекло, стекло бьётся, ловушка для обезьян держит;
 //   6. рука читается в кадре: пальцы отличаются от фона во всех пяти обстановках и в темноте;
 //   7. достижения: правила выдачи и то, что игра сама сообщает о событиях;
-//   8. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
+//   8. настройки: качество графики, предел кадров, инверсия, чувствительность, громкость — применяются и сохраняются;
+//   9. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
@@ -136,12 +137,12 @@ check(Object.keys(junk.a.best).join() === '1,7' && junk.a.best[7].stars === 3 &&
 const overflow = () => page.evaluate(async () => {
   const g = window.__gg, bad = [];
   const scan = (screen) => {
-    for (const e of document.querySelectorAll('.screen:not([hidden]) .btn, .screen:not([hidden]) .lvlcard, .screen:not([hidden]) .lvlcard .name, .screen:not([hidden]) .heisthead > span, .screen:not([hidden]) .card, .screen:not([hidden]) kbd, .hud .tl, .hud .hint'))
+    for (const e of document.querySelectorAll('.screen:not([hidden]) .btn, .screen:not([hidden]) .lvlcard, .screen:not([hidden]) .lvlcard .name, .screen:not([hidden]) .heisthead > span, .screen:not([hidden]) .card, .screen:not([hidden]) kbd, .screen:not([hidden]) .setlabel, .hud .tl, .hud .hint'))
       if (e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1) bad.push(`${screen}: «${e.textContent.trim().slice(0, 30)}» (${e.scrollWidth}×${e.scrollHeight} в ${e.clientWidth}×${e.clientHeight})`);
     const r = document.querySelector('.screen:not([hidden]) .card')?.getBoundingClientRect();
     if (r && (r.left < 0 || r.right > innerWidth || r.top < 0 || r.bottom > innerHeight)) bad.push(`${screen}: карточка не помещается в окно`);
   };
-  for (const name of ['menu', 'levels', 'controls']) { g.ui.show(name); scan(name); }
+  for (const name of ['menu', 'levels', 'controls', 'settings']) { g.ui.show(name); scan(name); }
   g.startLevelById(39); scan('уровень 39'); g.pause(); scan('пауза');
   g.resume(); g.fail('x'); g.endTimer = 0; g.endAction?.(); g.endAction = null; scan('поражение');
   g.startLevelById(40); g.state = 'playing';
@@ -165,6 +166,7 @@ if (SHOTS) {
   await shot('menu_en');
   await page.evaluate(() => window.__gg.ui.show('levels')); await shot('heists_en');
   await page.evaluate(() => window.__gg.ui.show('controls')); await shot('controls_en');
+  await page.evaluate(() => window.__gg.ui.show('settings')); await shot('settings_en');
   await freeze(3, 7.0); await shot('level_03_en');
   await page.evaluate(() => window.__gg.toMenu());
 }
@@ -177,6 +179,8 @@ check(overRu.length === 0, `русский текст помещается в к
   await offline(p2);
   await p2.goto(url);
   await p2.waitForFunction(() => window.__gg && window.__gg.state === 'menu', null, { timeout: 60000 });
+  const picked = await p2.evaluate(() => ({ auto: window.__gg.qualityPicked, now: window.__gg.settings.quality }));
+  check(['low', 'medium', 'high'].includes(picked.auto) && picked.now === picked.auto, `первый запуск: качество графики подобрано по скорости видеокарты — «${picked.auto}»`);
   const d = await p2.evaluate(() => ({ play: document.querySelector('.screen[data-name=menu] .btn.primary').textContent, skin: window.__gg.save.skin, lang: window.__gg.settings.lang }));
   check(d.play === 'Play' && d.lang === null, `новый игрок с нерусской системой (de-DE) видит английский: кнопка «${d.play}»`);
   check(d.skin === 'skin', `у нового игрока рука по умолчанию — светлая кожа («${d.skin}»)`);
@@ -206,6 +210,9 @@ if (SHOTS) {
   await shot('menu');
   await page.evaluate(() => window.__gg.ui.show('levels'));
   await shot('heists');
+  await page.evaluate(() => window.__gg.ui.show('settings'));
+  await shot('settings');
+  await page.evaluate(() => window.__gg.ui.show('menu'));
 }
 
 // --- автопилот проходит все уровни кампании
@@ -425,6 +432,52 @@ const handSeen = await page.evaluate(async () => {
   return out;
 });
 for (const h of handSeen) check(h.lit >= 12, `рука в кадре, уровень ${h.id}${h.dark ? ' (темнота)' : ''}, ${h.skin === 'skin' ? 'кожа' : 'чёрная перчатка'}: отличие пальцев от фона ${h.lit} из 255 (без подсветки было бы ${h.plain})`);
+
+// --- настройки
+const set = await page.evaluate(async () => {
+  const g = window.__gg, out = {}, S = 1 / 120, canvas = g.stage.renderer.domElement;
+  const stored = () => new Promise((r) => setTimeout(() => r(JSON.parse(localStorage.getItem('goldenGrab.settings.v1'))), 400));
+  // экран настроек: клик по строке меняет значение
+  g.ui.show('settings');
+  const rowBtn = (key) => document.querySelector(`.setrow[data-key=${key}] .btn`);
+  out.rows = [...document.querySelectorAll('.setrow')].map((r) => r.dataset.key);
+  rowBtn('quality').click();                              // high → low (по кругу)
+  out.low = { name: g.settings.quality, shadows: g.stage.renderer.shadowMap.enabled, post: g.stage.quality.post, pr: g.stage.pixelRatio, transmission: g.M.glass.transmission, label: rowBtn('quality').textContent };
+  g.startLevelById(1); for (let i = 0; i < 60; i++) g._fixedStep(S); g.stage.update(0.016, 0, g.hand.pos, 0); g.stage.render();
+  const gl = g.stage.renderer.getContext(), px = new Uint8Array(4); gl.readPixels(gl.drawingBufferWidth >> 1, gl.drawingBufferHeight >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  out.low.pixel = px[0] + px[1] + px[2]; out.low.auto = g.autoTest(1, 60).result;
+  g.applySettings({ quality: 'medium' });
+  out.medium = { shadows: g.stage.spot.shadow.mapSize.x, samples: g.stage.samples, pr: g.stage.pixelRatio, transmission: g.M.glass.transmission };
+  g.applySettings({ quality: 'high' });
+  out.high = { shadows: g.stage.spot.shadow.mapSize.x, samples: g.stage.samples, transmission: g.M.glass.transmission, post: g.stage.quality.post };
+  // инверсия вперёд-назад: колесо двигает цель в другую сторону
+  g.startLevelById(1); const z0 = g.hand.target.z;
+  canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, cancelable: true })); const dz = g.hand.target.z - z0;
+  g.applySettings({ invertDepth: true }); const z1 = g.hand.target.z;
+  canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, cancelable: true })); out.invert = { normal: +dz.toFixed(3), inverted: +(g.hand.target.z - z1).toFixed(3) };
+  g.applySettings({ invertDepth: false });
+  // предел кадров: считаем кадры игры за секунду
+  const frames = async (limit) => { g.applySettings({ fpsLimit: limit }); let n = 0; const orig = g.stage.render.bind(g.stage); g.stage.render = () => { n++; orig(); }; await new Promise((r) => setTimeout(r, 300)); n = 0; await new Promise((r) => setTimeout(r, 2000)); g.stage.render = orig; return n / 2; };
+  out.fps = { free: await frames(0), at30: await frames(30), at60: await frames(60) };
+  g.applySettings({ fpsLimit: 0 });
+  // громкость и счётчик кадров
+  g.audio.init(); g.applySettings({ volume: 0.2, music: 0.9, showFps: true, sensitivity: 9, quality: 'ultra' });
+  await new Promise((r) => setTimeout(r, 1300));
+  out.misc = { sfx: g.audio.volume, music: g.audio.music, fpsBox: !g.ui.fpsBox.hidden && /FPS/.test(g.ui.fpsBox.textContent), sensitivity: g.settings.sensitivity, quality: g.settings.quality };
+  out.stored = await stored();
+  g.applySettings({ volume: 0.4, music: 0.7, showFps: false, sensitivity: 1 });
+  g.toMenu();
+  return out;
+});
+check(set.rows.join() === 'lang,quality,fpsLimit,showFps,sensitivity,invertDepth,volume,music,noFlicker', `экран настроек: строки ${set.rows.join(', ')} (режим экрана — только в приложении)`);
+check(set.low.name === 'low' && set.low.shadows === false && set.low.post === false && set.low.pr === 0.75 && set.low.transmission === 0 && set.low.pixel > 0 && set.low.auto === 'won',
+  `качество «${set.low.label}»: теней нет, постобработки нет, стекло простое, разрешение ×${set.low.pr}; кадр не чёрный, уровень 1 проходится`);
+check(set.medium.transmission === 0 && set.medium.shadows === 1024 && set.medium.samples === 2 && set.medium.pr === 1 && set.high.shadows === 2048 && set.high.samples === 4 && set.high.transmission === 1 && set.high.post,
+  `качество «среднее»: тени ${set.medium.shadows}, сглаживание ×${set.medium.samples}, стекло простое; «высокое»: тени ${set.high.shadows}, сглаживание ×${set.high.samples}, настоящее стекло`);
+check(set.invert.normal > 0 && Math.abs(set.invert.inverted + set.invert.normal) < 1e-6, `инверсия вперёд-назад: колесо двигает руку на ${set.invert.normal} м, с инверсией — на ${set.invert.inverted} м`);
+check(set.fps.at30 >= 24 && set.fps.at30 <= 33 && set.fps.at60 >= 48 && set.fps.at60 <= 66 && set.fps.free > set.fps.at60, `предел кадров: без предела ${set.fps.free.toFixed(0)}, «не больше 30» — ${set.fps.at30.toFixed(0)}, «не больше 60» — ${set.fps.at60.toFixed(0)} кадров/с`);
+check(set.misc.sfx === 0.2 && set.misc.music === 0.9 && set.misc.fpsBox && set.misc.sensitivity === 2.5 && set.misc.quality === 'high', `громкость эффектов ${set.misc.sfx} и фона ${set.misc.music} раздельно, счётчик кадров виден, недопустимые значения отброшены (чувствительность 9 → ${set.misc.sensitivity}, качество «ultra» → ${set.misc.quality})`);
+check(set.stored.volume === 0.2 && set.stored.music === 0.9 && set.stored.showFps === true && set.stored.quality === 'high' && set.stored.fpsLimit === 0, 'настройки записаны в хранилище');
 
 // --- достижения
 const ach = await page.evaluate(async () => {

@@ -3,7 +3,8 @@
 export class AudioSys {
   constructor() {
     this.ctx = null;
-    this.volume = 0.7;
+    this.volume = 0.7;     // громкость эффектов
+    this.music = 0.7;      // громкость фона (гул помещения) — в настройках это «музыка и фон»
     this.siren = null;
     this.lastTap = 0;
   }
@@ -15,7 +16,8 @@ export class AudioSys {
     if (!AC) return;
     this.ctx = new AC();
     this.master = this.ctx.createGain();
-    this.master.gain.value = this.volume;
+    this.sfx = this.ctx.createGain(); this.sfx.gain.value = this.volume; this.sfx.connect(this.master);     // все звуки игры
+    this.amb = this.ctx.createGain(); this.amb.gain.value = this.music; this.amb.connect(this.master);      // фон
     const comp = this.ctx.createDynamicsCompressor();
     this.master.connect(comp).connect(this.ctx.destination);
     this.noiseBuf = this._noiseBuffer(2);
@@ -24,7 +26,12 @@ export class AudioSys {
 
   setVolume(v) {
     this.volume = v;
-    if (this.master) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03);
+    if (this.sfx) this.sfx.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03);
+  }
+
+  setMusicVolume(v) {
+    this.music = v;
+    if (this.amb) this.amb.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03);
   }
 
   _noiseBuffer(seconds) {
@@ -46,7 +53,7 @@ export class AudioSys {
     o.type = type; o.frequency.setValueAtTime(freq, t);
     if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + decay);
     this._env(g, t, peak, 0.004, decay);
-    o.connect(g).connect(this.master); o.start(t); o.stop(t + decay + 0.05);
+    o.connect(g).connect(this.sfx); o.start(t); o.stop(t + decay + 0.05);
   }
 
   _noise(peak, decay, filterType, freq, q = 1, when = 0) {
@@ -54,15 +61,15 @@ export class AudioSys {
     s.buffer = this.noiseBuf; s.loop = true;
     f.type = filterType; f.frequency.value = freq; f.Q.value = q;
     this._env(g, t, peak, 0.003, decay);
-    s.connect(f).connect(g).connect(this.master); s.start(t, Math.random()); s.stop(t + decay + 0.05);
+    s.connect(f).connect(g).connect(this.sfx); s.start(t, Math.random()); s.stop(t + decay + 0.05);
   }
 
   _ambient() { // тихий гул хранилища: низкий шум + 50 Гц от ламп
     const s = this.ctx.createBufferSource(), f = this.ctx.createBiquadFilter(), g = this.ctx.createGain();
     s.buffer = this.noiseBuf; s.loop = true; f.type = 'lowpass'; f.frequency.value = 140; g.gain.value = 0.11;
-    s.connect(f).connect(g).connect(this.master); s.start();
+    s.connect(f).connect(g).connect(this.amb); s.start();
     const hum = this.ctx.createOscillator(), hg = this.ctx.createGain();
-    hum.frequency.value = 50; hg.gain.value = 0.012; hum.connect(hg).connect(this.master); hum.start();
+    hum.frequency.value = 50; hg.gain.value = 0.012; hum.connect(hg).connect(this.amb); hum.start();
     const lfo = this.ctx.createOscillator(), lg = this.ctx.createGain();
     lfo.frequency.value = 0.07; lg.gain.value = 0.04; lfo.connect(lg).connect(g.gain); lfo.start();
   }
@@ -136,7 +143,7 @@ export class AudioSys {
     o.type = 'sawtooth'; o.frequency.value = 760; lfo.type = 'triangle'; lfo.frequency.value = 1.6; lg.gain.value = 260;
     const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2400;
     g.gain.value = 0.0001; g.gain.exponentialRampToValueAtTime(0.16, this.ctx.currentTime + 0.1);
-    lfo.connect(lg).connect(o.frequency); o.connect(f).connect(g).connect(this.master);
+    lfo.connect(lg).connect(o.frequency); o.connect(f).connect(g).connect(this.sfx);
     o.start(); lfo.start();
     this.siren = { o, lfo, g };
   }

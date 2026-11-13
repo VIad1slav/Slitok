@@ -1,5 +1,5 @@
 // HUD, меню, экраны победы/поражения, сохранение прогресса. Текста здесь нет — только ключи словарей src/i18n/.
-import { storeSave, storeSettings } from './save.js';
+import { storeSave, QUALITY_LEVELS, FPS_LIMITS } from './save.js';
 import { HEISTS, heistStars, isHeistUnlocked, totalStars, continueLevel, levelById } from './heists.js';
 import { cosmeticById, unlockedCosmetics } from './cosmetics.js';
 import { platform } from './platform.js';
@@ -44,6 +44,7 @@ export class UI {
     card.append(this._button(t('menu.play'), () => this.h.playId(continueLevel(this.save).id), 'primary'));
     card.append(this._button(t('menu.heists'), () => this.show('levels')));
     card.append(this._button(t('menu.controls'), () => this.show('controls')));
+    card.append(this._button(t('menu.settings'), () => this.show('settings')));
     if (platform.isDesktop) card.append(this._button(t('menu.quit'), () => this.h.quit()));   // в браузере закрывать нечего
     const opts = el('div', 'opts');
     this.skinBtn = this._button('', () => {   // перебор открытых вариантов руки по кругу
@@ -51,20 +52,12 @@ export class UI {
       this.save.skin = list[(i + 1) % list.length].id;
       this._syncOptions(); this.h.skin(this.save.skin); storeSave(this.save);
     }, 'ghost');
-    const vol = el('label', 'vol', `<span>${t('opt.volume')}</span>`);
-    this.volInput = el('input'); this.volInput.type = 'range'; this.volInput.min = 0; this.volInput.max = 1; this.volInput.step = 0.01;
-    this.volInput.addEventListener('input', () => { this.settings.volume = +this.volInput.value; this.h.volume(this.settings.volume); storeSettings(this.settings); });
-    vol.append(this.volInput);
     this.accBtn = this._button('', () => {    // украшение: «нет» и открытые варианты по кругу
       const list = [null, ...unlockedCosmetics('accessory', totalStars(this.save)).map((c) => c.id)], i = list.indexOf(this.save.accessory);
       this.save.accessory = list[(i + 1) % list.length];
       this._syncOptions(); this.h.accessory(this.save.accessory); storeSave(this.save);
     }, 'ghost');
-    this.flickerBtn = this._button('', () => { this.settings.noFlicker = !this.settings.noFlicker; this._syncOptions(); storeSettings(this.settings); }, 'ghost');
-    this.langBtn = this._button('', () => this.h.language(LANGS[(LANGS.indexOf(getLang()) + 1) % LANGS.length]), 'ghost');   // языки по кругу
-    this.fsBtn = this._button('', () => this.h.fullscreen(!platform.isFullscreen()), 'ghost');   // полный экран / окно (ещё Alt+Enter)
-    this.fsBtn.hidden = !platform.isDesktop;
-    opts.append(this.skinBtn, this.accBtn, this.flickerBtn, this.langBtn, this.fsBtn, vol);
+    opts.append(this.skinBtn, this.accBtn);
     card.append(opts);
     menu.append(card);
 
@@ -85,12 +78,48 @@ export class UI {
     cc.append(this._button(t('common.back'), () => this.show(this.controlsBack || 'menu'), 'ghost'));
     controls.append(cc);
 
+    // --- настройки (из главного меню и из паузы). Каждая строка: подпись и либо кнопка «значения по кругу», либо ползунок.
+    const settings = this._screen('settings');
+    const sc = el('div', 'card wide');
+    sc.append(el('div', 'h2', t('menu.settings')));
+    const rows = el('div', 'setrows'); sc.append(rows);
+    const S = this.settings, set = (change) => this.h.settings(change);
+    this._sync = [];
+    const row = (key, label, control) => { const r = el('div', 'setrow'); r.dataset.key = key; r.append(el('span', 'setlabel', label), control); rows.append(r); return r; };
+    const cycle = (key, label, values, get, textOf, apply) => {
+      const b = this._button('', () => apply(values[(values.indexOf(get()) + 1) % values.length]), 'ghost val');
+      this._sync.push(() => { b.innerHTML = `<b>${textOf(get())}</b>`; });
+      return row(key, label, b);
+    };
+    const slider = (key, label, min, max, step, textOf) => {
+      const wrap = el('label', 'setslider'), input = el('input'), out = el('span', 'setvalue');
+      input.type = 'range'; input.min = min; input.max = max; input.step = step;
+      input.addEventListener('input', () => { set({ [key]: +input.value }); });
+      wrap.append(input, out);
+      this._sync.push(() => { input.value = S[key]; out.textContent = textOf(S[key]); });
+      return row(key, label, wrap);
+    };
+    const onOff = (v) => (v ? t('common.on') : t('common.off')), percent = (v) => `${Math.round(v * 100)} %`;
+    cycle('lang', t('opt.language'), LANGS, getLang, langName, (v) => this.h.language(v));
+    cycle('quality', t('set.quality'), QUALITY_LEVELS, () => S.quality, (v) => t(`set.quality.${v}`), (v) => set({ quality: v }));
+    if (platform.isDesktop) cycle('fullscreen', t('opt.display'), [true, false], () => platform.isFullscreen(), (v) => (v ? t('opt.fullscreen') : t('opt.windowed')), (v) => set({ fullscreen: v }));
+    cycle('fpsLimit', t('set.fps'), FPS_LIMITS, () => S.fpsLimit, (v) => (v ? t('set.fps.value', { n: v }) : t('set.fps.vsync')), (v) => set({ fpsLimit: v }));
+    cycle('showFps', t('set.showFps'), [false, true], () => S.showFps, onOff, (v) => set({ showFps: v }));
+    slider('sensitivity', t('set.sensitivity'), 0.3, 2.5, 0.05, (v) => `× ${v.toFixed(2)}`);
+    cycle('invertDepth', t('set.invert'), [false, true], () => S.invertDepth, onOff, (v) => set({ invertDepth: v }));
+    slider('volume', t('set.sfx'), 0, 1, 0.01, percent);
+    slider('music', t('set.music'), 0, 1, 0.01, percent);
+    cycle('noFlicker', t('opt.flicker'), [false, true], () => S.noFlicker, (v) => (v ? t('opt.flickerOff') : t('opt.flickerOn')), (v) => set({ noFlicker: v }));
+    sc.append(this._button(t('common.back'), () => this.show(this.controlsBack || 'menu'), 'ghost'));
+    settings.append(sc);
+
     // --- пауза
     const pause = this._screen('pause');
     const pc = el('div', 'card');
     pc.append(el('div', 'h2', t('pause.title')));
     pc.append(this._button(t('pause.resume'), () => this.h.resume(), 'primary'), this._button(t('pause.restart'), () => this.h.restart()),
-      this._button(t('menu.controls'), () => { this.controlsBack = 'pause'; this.show('controls'); }), this._button(t('common.toMenu'), () => this.h.menu(), 'ghost'));
+      this._button(t('menu.controls'), () => { this.controlsBack = 'pause'; this.show('controls'); }), this._button(t('menu.settings'), () => { this.controlsBack = 'pause'; this.show('settings'); }),
+      this._button(t('common.toMenu'), () => this.h.menu(), 'ghost'));
     pause.append(pc);
 
     // --- победа
@@ -131,6 +160,7 @@ export class UI {
     const q = (s) => hud.querySelector(s);
     this.$ = { lootrow: q('.lootrow'), lootlabel: q('.lootlabel'), loot: q('.loot'), lvl: q('.lvl'), timer: q('.timer'), limit: q('.limit'), touches: q('.touches'), pips: q('.pips'), camuses: q('.camuses'), meter: q('.meter'), mlabel: q('.mlabel'), mbar: q('.mbar i'), mmark: q('.mmark'), alarm: q('.alarm'), atext: q('.atext'), acount: q('.acount'), toast: q('.toast'), grab: q('.grab'), grabText: q('.grab span'), hint: q('.hint'), clickme: q('.clickme') };
     this.vignette = el('div', 'vignette'); this.root.append(this.vignette);
+    this.fpsBox = el('div', 'fpsbox'); this.fpsBox.hidden = true; this.root.append(this.fpsBox);
 
     this._syncOptions();
     this.refreshLevels();
@@ -140,10 +170,7 @@ export class UI {
     this.skinBtn.innerHTML = `${t('opt.hand')}: <b>${cosmeticName(cosmeticById(this.save.skin))}</b>`;
     this.accBtn.innerHTML = `${t('opt.accessory')}: <b>${this.save.accessory ? cosmeticName(cosmeticById(this.save.accessory)) : t('opt.accessoryNone')}</b>`;
     this.accBtn.hidden = unlockedCosmetics('accessory', totalStars(this.save)).length === 0;   // пока ничего не открыто, кнопки нет
-    this.flickerBtn.innerHTML = `${t('opt.flicker')}: <b>${this.settings.noFlicker ? t('opt.flickerOff') : t('opt.flickerOn')}</b>`;
-    this.langBtn.innerHTML = `${t('opt.language')}: <b>${langName(getLang())}</b>`;
-    this.fsBtn.innerHTML = `${t('opt.display')}: <b>${platform.isDesktop && platform.isFullscreen() ? t('opt.fullscreen') : t('opt.windowed')}</b>`;
-    this.volInput.value = this.settings.volume;
+    for (const fn of this._sync) fn();
   }
 
   /** Экран выбора: по блоку на ограбление — название, звёзды, замок с порогом, карточки уровней. */
@@ -168,8 +195,11 @@ export class UI {
     }
   }
 
-  /** Окно вошло в полный экран или вышло из него. */
-  setFullscreen() { this._syncOptions(); }
+  /** Настройки изменились (в том числе полный экран по Alt+Enter): обновить подписи. */
+  syncSettings() { this._syncOptions(); }
+
+  /** Счётчик кадров в углу: число или null, чтобы спрятать. */
+  setFps(fps) { this.fpsBox.hidden = fps == null; if (fps != null) this.fpsBox.textContent = `${Math.round(fps)} FPS`; }
 
   setLoading(p) { this.loadP = p; this.loadBar.firstChild.style.width = `${Math.round(p * 100)}%`; this.loadPct.textContent = `${Math.round(p * 100)} %`; }
 
