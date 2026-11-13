@@ -2,3 +2,4 @@ node_modules/
 tools/blender/_cache/
 tools/blender/__pycache__/
 steam_appid.txt
+dist/

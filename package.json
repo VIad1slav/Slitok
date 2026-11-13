@@ -14,7 +14,11 @@
     "i18n": "node tools/check_i18n.mjs",
     "vendor": "node tools/vendor.mjs",
     "textures": "node tools/convert_textures.mjs",
-    "test:desktop": "node tools/test/desktop.mjs"
+    "test:desktop": "node tools/test/desktop.mjs",
+    "prebuild:win": "node tools/prebuild.mjs",
+    "build:win": "electron-builder --win --x64 --dir",
+    "prebuild:linux": "node tools/prebuild.mjs",
+    "build:linux": "electron-builder --linux --x64 --dir"
   },
   "devDependencies": {
     "cannon-es": "0.20.0",
@@ -29,5 +33,94 @@
   "main": "electron/main.js",
   "dependencies": {
     "steamworks.js": "0.4.0"
+  },
+  "build": {
+    "appId": "com.goldengrab.game",
+    "productName": "Golden Grab",
+    "copyright": "Golden Grab",
+    "directories": {
+      "output": "dist",
+      "buildResources": "electron"
+    },
+    "files": [
+      "index.html",
+      "styles.css",
+      "package.json",
+      "src/**/*",
+      "vendor/**/*",
+      "electron/*.js",
+      "electron/package.json",
+      "electron/icon.png",
+      "assets/models/*.glb",
+      "assets/textures/*.webp",
+      "!node_modules/steamworks.js/dist/osx/**",
+      "!node_modules/steamworks.js/*.md",
+      "!node_modules/steamworks.js/*.d.ts"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/steamworks.js/dist/**"
+    ],
+    "npmRebuild": false,
+    "electronLanguages": [
+      "en-US",
+      "ru"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/icon.ico",
+      "files": [
+        "index.html",
+        "styles.css",
+        "package.json",
+        "src/**/*",
+        "vendor/**/*",
+        "electron/*.js",
+        "electron/package.json",
+        "electron/icon.png",
+        "assets/models/*.glb",
+        "assets/textures/*.webp",
+        "!node_modules/steamworks.js/dist/osx/**",
+        "!node_modules/steamworks.js/*.md",
+        "!node_modules/steamworks.js/*.d.ts",
+        "!node_modules/steamworks.js/dist/linux64/**"
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/icon-512.png",
+      "category": "Game",
+      "executableName": "golden-grab",
+      "files": [
+        "index.html",
+        "styles.css",
+        "package.json",
+        "src/**/*",
+        "vendor/**/*",
+        "electron/*.js",
+        "electron/package.json",
+        "electron/icon.png",
+        "assets/models/*.glb",
+        "assets/textures/*.webp",
+        "!node_modules/steamworks.js/dist/osx/**",
+        "!node_modules/steamworks.js/*.md",
+        "!node_modules/steamworks.js/*.d.ts",
+        "!node_modules/steamworks.js/dist/win64/**"
+      ]
+    }
   }
 }

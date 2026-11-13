@@ -32,6 +32,39 @@ const windowInfo = (app) => app.evaluate(({ BrowserWindow, app: a }) => {
   return { title: w.getTitle(), fullscreen: w.isFullScreen(), menu: w.isMenuBarVisible(), userData: a.getPath('userData'), packaged: a.isPackaged, name: a.getName(),
     prefs: { contextIsolation: p.contextIsolation, nodeIntegration: p.nodeIntegration, sandbox: p.sandbox, devTools: p.devTools, webSecurity: p.webSecurity } };
 });
+/**
+ * Пройти уровень 1 «Разминка» настоящим вводом — движениями мыши, колесом и кнопкой, как игрок.
+ * Отладочного доступа к игре здесь нет: скрипт смотрит только на экран (подсказка «ЛКМ — схватить», экран победы).
+ * from — точка, где мышь была в момент клика «Играть»; при захваченной мыши игра получает только смещения.
+ * Числа — из описания уровня: слиток левее стартовой позы руки на 0,36 м, «сейф» правее на 0,62 м и ближе на 0,2 м;
+ * чувствительность мыши по умолчанию 0,0011 м на пиксель, щелчок колеса — 0,035 м.
+ */
+async function playLevelOne(page, from) {
+  let x = from.x, y = from.y;
+  const move = async (dx, dy, step = 12, pause = 25) => {
+    const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / step));
+    for (let i = 1; i <= n; i++) { await page.mouse.move(x + (dx * i) / n, y + (dy * i) / n); await sleep(pause); }
+    x += dx; y += dy;
+  };
+  const has = (cls) => page.evaluate((c) => document.querySelector('.hud .grab').classList.contains(c), cls);
+  await move(-327, 0);                                   // влево, к коробке
+  await page.mouse.wheel(0, -100); await sleep(400);     // чуть вперёд
+  let ready = false;
+  for (let i = 0; i < 45 && !ready; i++) { await move(0, 8, 8, 40); ready = await has('ready'); }   // вниз, пока не загорится «ЛКМ — схватить»
+  if (!ready) return { ok: false, why: 'рука не дотянулась до слитка' };
+  await move(0, 6, 6, 40);
+  await page.mouse.down(); await sleep(700);
+  if (!(await has('hold'))) { await page.mouse.up(); return { ok: false, why: 'слиток не схвачен' }; }
+  await move(0, -330, 10, 25);                           // вверх, выше крышки коробки
+  await move(565, 0, 12, 25);                            // вправо, к «сейфу»
+  for (let i = 0; i < 8; i++) { await page.mouse.wheel(0, 100); await sleep(120); }   // к себе
+  await move(0, 250, 10, 25);                            // вниз, к столу
+  await sleep(400); await page.mouse.up();
+  const won = await page.waitForFunction(() => !document.querySelector('.screen[data-name=win]').hidden, null, { timeout: 8000 }).then(() => true).catch(() => false);
+  if (!won) return { ok: false, why: 'слиток не засчитан в «сейфе»' };
+  return { ok: true, stats: await page.evaluate(() => document.querySelector('.screen[data-name=win] .stats').innerText.replace(/\s+/g, ' ')) };
+}
+
 const readJson = (file) => { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; } };
 const quit = async (app, page) => { const done = closed(app); await page.evaluate(() => window.desktop.quit()); return Promise.race([done, sleep(8000).then(() => false)]); };
 const closed = (app) => new Promise((r) => app.once('close', () => r(true)));
@@ -181,16 +214,43 @@ console.log(EXE ? `Собранное приложение: ${EXE}` : 'Режи�
   const focusedRel = await focus(app);
   await page.click('.screen[data-name=menu] .btn.primary');
   await page.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 3000 }).catch(() => {});
+  // Мышь не захватилась с первого клика (так бывает, когда за компьютером в это время работают): кликаем по игре,
+  // как просит надпись «Кликни, чтобы захватить мышь», и продолжаем.
+  let secondClick = false;
+  if (focusedRel && !(await page.evaluate(() => !!document.pointerLockElement))) {
+    secondClick = true;
+    if (!(await page.evaluate(() => document.querySelector('.screen[data-name=pause]').hidden))) await page.evaluate(() => document.querySelector('.screen[data-name=pause] .btn.primary').click());
+    await page.mouse.click(200, 300); await page.waitForFunction(() => !!document.pointerLockElement, null, { timeout: 3000 }).catch(() => {});
+  }
   await sleep(1200);
   const hud = await page.evaluate(() => ({ hud: !document.querySelector('.hud').hidden, timer: document.querySelector('.hud .timer').textContent, locked: !!document.pointerLockElement, level: document.querySelector('.hud .lvl').textContent }));
   await sleep(1000);
   const timer2 = await page.evaluate(() => document.querySelector('.hud .timer').textContent);
-  if (focusedRel) check(hud.hud && hud.locked && timer2 !== hud.timer, `клик «Играть»: уровень «${hud.level}» идёт (таймер ${hud.timer} → ${timer2}), мышь захвачена (${hud.locked})`);
+  // уровень 1 играется: проходим его настоящим вводом и смотрим, что рекорд попал в файл сохранения
+  if (focusedRel && hud.locked) {
+    await page.keyboard.press('KeyR'); await sleep(600);                    // начать уровень заново — с известной позы руки
+    const box = await page.evaluate(() => ({ x: innerWidth / 2, y: innerHeight / 2 }));
+    await page.mouse.move(box.x, box.y); await sleep(200);
+    await page.keyboard.press('KeyR'); await sleep(600);                    // ещё раз: первое движение мыши сдвинуло руку
+    const run = await playLevelOne(page, box);
+    await sleep(500);
+    const saved = readJson(join(dir, 'saves', 'save.json'));
+    check(run.ok && saved?.best?.[1]?.stars >= 1, run.ok ? `уровень 1 пройден настоящим вводом (мышь, колесо, ЛКМ): ${run.stats}; рекорд записан в save.json (${saved?.best?.[1]?.time} с, звёзд ${saved?.best?.[1]?.stars})` : `уровень 1 настоящим вводом не пройден: ${run.why}`);
+    if (SHOTS) await page.screenshot({ path: join(ROOT, 'docs', 'screens', EXE ? 'desktop_exe_win.png' : 'desktop_win.png') });
+    await page.evaluate(() => { const w = document.querySelector('.screen[data-name=win]'); if (!w.hidden) [...w.querySelectorAll('.btn')].pop().click(); });   // «В меню»
+    await sleep(400);
+  }
+  // фокус мог уйти уже после клика — тогда игра законно встала на паузу, и это не ошибка игры
+  const stillFocused = await page.evaluate(() => document.hasFocus()) && await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused());
+  if (focusedRel && !hud.locked && !stillFocused) console.log('  пропуск  окно потеряло фокус сразу после клика — захват мыши и прохождение уровня в этом запуске не проверены');
+  else if (focusedRel) check(hud.hud && hud.locked && timer2 !== hud.timer, `клик «Играть»: уровень «${hud.level}» идёт (таймер ${hud.timer} → ${timer2}), мышь захвачена (${hud.locked}${secondClick ? ', со второго клика' : ''})`);
   else check(hud.hud && /\S/.test(hud.level), `клик «Играть»: уровень «${hud.level}» запущен (окно без фокуса — игра на паузе, как и должна)`);
   if (SHOTS) { mkdirSync(join(ROOT, 'docs', 'screens'), { recursive: true }); await page.screenshot({ path: join(ROOT, 'docs', 'screens', EXE ? 'desktop_exe_level.png' : 'desktop_level.png') }); }
 
-  if (await page.evaluate(() => document.querySelector('.screen[data-name=pause]').hidden)) { await page.keyboard.press('Escape'); await sleep(500); }
-  await page.evaluate(() => { const b = [...document.querySelectorAll('.screen[data-name=pause] .btn')].pop(); b.click(); });   // «В меню»
+  if (await page.evaluate(() => document.querySelector('.screen[data-name=menu]').hidden)) {
+    if (await page.evaluate(() => document.querySelector('.screen[data-name=pause]').hidden)) { await page.keyboard.press('Escape'); await sleep(500); }
+    await page.evaluate(() => { const b = [...document.querySelectorAll('.screen[data-name=pause] .btn, .screen[data-name=lose] .btn')].filter((x) => x.offsetParent).pop(); b?.click(); });   // «В меню»
+  }
   await sleep(400);
 
   // сохранение и настройки пишутся в файлы: меняем руку (это сохранение) и язык (это настройки) кнопками меню
