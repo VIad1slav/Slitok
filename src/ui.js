@@ -6,6 +6,7 @@ import { platform } from './platform.js';
 import { t, tList, tPick, LANGS, getLang, langName, levelName, levelHint, heistName, heistTagline, cosmeticName, metalName } from './i18n/index.js';
 import { metalById, unlockedMetals } from './metals.js';
 
+const DEV_UNLOCK = platform.isDesktop && platform.dev;   // открыть все ограбления для проверки (только запуск из исходников)
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const stars = (n, max = 3) => '<span class="stars">' + Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}">★</i>`).join('') + '</span>';
 export const fmtTime = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(1).padStart(4, '0')}`; };
@@ -201,9 +202,11 @@ export class UI {
     this.levelGrid.innerHTML = '';
     const have = totalStars(this.save);
     for (const heist of HEISTS) {
-      const open = isHeistUnlocked(heist, this.save), st = heistStars(heist, this.save);
+      // Режим разработки настольного приложения (npm run desktop): все ограбления открыты, чтобы автор мог проверить
+      // любой уровень, не набирая звёзды. В сборке для игроков и в браузере замки работают как обычно.
+      const earned = isHeistUnlocked(heist, this.save), open = earned || DEV_UNLOCK, st = heistStars(heist, this.save);
       const block = el('div', 'heist' + (open ? '' : ' locked'));
-      const status = !open ? t('heist.locked', { need: heist.unlockStars, have }) : heist.levels.length ? t('heist.stars', st) : t('heist.empty');
+      const status = !open ? t('heist.locked', { need: heist.unlockStars, have }) : !earned ? t('heist.devOpen', { need: heist.unlockStars }) : heist.levels.length ? t('heist.stars', st) : t('heist.empty');
       block.append(el('div', 'heisthead', `<span class="hname">${heistName(heist)}</span><span class="htag">${heistTagline(heist)}</span><span class="hstat">${open ? '' : '<i class="lock"></i>'}${status}</span>`));
       const grid = el('div', 'grid');
       heist.levels.forEach((id, i) => {

@@ -87,6 +87,7 @@ export default {
   // --- heists screen
   'heist.locked': 'Unlocks at {need} ★ — you have {have}',
   'heist.empty': 'Levels for this heist are still in the works',
+  'heist.devOpen': 'Unlocked for testing (dev mode) — players unlock it at {need} ★',
   'heist.stars': '{have} / {max} ★',
 
   // --- HUD

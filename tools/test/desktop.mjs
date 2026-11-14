@@ -114,6 +114,10 @@ if (!EXE) {
   check(p1.state === 'paused' && p2.time === p1.time && p1.time > t0 - 0.001, `потеря фокуса: игра на паузе (${p1.state}), время стоит (${p1.time.toFixed(2)} → ${p2.time.toFixed(2)} с)`);
   await page.evaluate(() => window.__gg.toMenu());
 
+  // режим разработки: все ограбления открыты для проверки (у нового сохранения звёзд нет)
+  const devOpen = await page.evaluate(() => { window.__gg.ui.show('levels'); const cards = [...document.querySelectorAll('.lvlcard')]; const r = { cards: cards.length, enabled: cards.filter((c) => !c.disabled).length, locked: document.querySelectorAll('.heist.locked').length }; window.__gg.ui.show('menu'); return r; });
+  check(devOpen.cards === 43 && devOpen.enabled === 43 && devOpen.locked === 0, `режим разработки: все ограбления открыты для проверки (карточек уровней ${devOpen.cards}, доступно ${devOpen.enabled})`);
+
   // Steam: если клиента нет, игра просто работает без него
   const steam = await page.evaluate(() => window.desktop.steamStatus());
   check(typeof steam.available === 'boolean', steam.available ? 'Steam найден: достижения будут отправляться' : `Steam не найден (${steam.reason}) — игра запустилась и работает без него`);
@@ -208,6 +212,8 @@ console.log(EXE ? `Собранное приложение: ${EXE}` : 'Режи�
   check(info.title === 'Golden Grab' && info.fullscreen === true && info.menu === false, `окно «${info.title}», полный экран, без строки меню`);
   check(info.prefs.contextIsolation === true && info.prefs.nodeIntegration === false && info.prefs.sandbox === true, 'окно изолировано так же, как в режиме разработки');
   const web = await page.evaluate(() => ({ gg: typeof window.__gg, dev: window.desktop.dev, href: location.href }));
+  const locks = await page.evaluate(() => { document.querySelectorAll('.screen').forEach((x) => { x.hidden = x.dataset.name !== 'levels'; }); const cards = [...document.querySelectorAll('.lvlcard')]; const r = { enabled: cards.filter((c) => !c.disabled).length, locked: document.querySelectorAll('.heist.locked').length }; document.querySelectorAll('.screen').forEach((x) => { x.hidden = x.dataset.name !== 'menu'; }); return r; });
+  check(locks.enabled === 8 && locks.locked === 5, `в сборке для игроков замки на месте: доступно ${locks.enabled} уровней, под замком ${locks.locked} ограблений`);
   check(web.gg === 'undefined' && web.dev === false, `отладочного window.__gg нет (${web.gg})`);
 
   // «Играть»: уровень идёт, мышь захвачена. Эта проверка идёт первой: попытка открыть DevTools ниже на время сбивает захват мыши.
