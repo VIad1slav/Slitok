@@ -589,7 +589,7 @@ const metals = await page.evaluate(async () => {
     g.startLevelById(33); const big = g.items[0];
     g.startLevelById(22); const scale = g.traps.find((t) => t.def.type === 'scale');
     out.look[m.id] = { mass: +bar.body.mass.toFixed(3), bigMass: +big.body.mass.toFixed(2), slip: +(g.hand.levelSlipSpeed * bar.slipScale).toFixed(3), bigSlip: +(Math.min(g.hand.levelSlipSpeed, big.type.slipSpeed) * big.slipScale).toFixed(3),
-      scaleMin: +scale.def.min.toFixed(3), barOnScale: +g.items[0].mass.toFixed(3), color: '#' + bar.material.color.getHexString(), map: !!bar.material.map, normal: !!bar.material.normalMap,
+      scaleMin: +scale.def.min.toFixed(3), barOnScale: +g.items[0].mass.toFixed(3), color: '#' + bar.material.color.getHexString(), map: !!bar.material.map, normal: !!bar.material.normalMap, ownStamp: bar.material.normalMap !== g.M.gold.normalMap && bar.material.roughnessMap !== g.M.gold.roughnessMap,
       name: I.lootName(LOOT.bar, bar.metal), fall: I.lootFall(LOOT.bigbar, big.metal), other: g.items[1].mass };
     if (m.id === 'gold') continue;       // золото уже прошло всю кампанию выше, с эталоном времени
     const res = H.campaignOrder().map((e) => g.autoTest(e.level.id, 400));
@@ -610,8 +610,8 @@ check(ML.platinum.mass === 1.11 && ML.silver.mass === 0.54 && ML.bronze.mass ===
   `масса и хват по металлам: платина ${ML.platinum.mass} кг (большой ${ML.platinum.bigMass} кг, порог ${ML.platinum.bigSlip} м/с), серебро ${ML.silver.mass} кг (${ML.silver.slip} м/с), бронза ${ML.bronze.mass} кг (${ML.bronze.slip} м/с); груз для весов не меняется (${ML.silver.other} кг)`);
 check(['platinum', 'silver', 'bronze'].every((m) => ML[m].barOnScale >= ML[m].scaleMin && ML[m].scaleMin <= 2),
   `весы: порог веса идёт за металлом (платина ${ML.platinum.scaleMin} кг, серебро ${ML.silver.scaleMin} кг, бронза ${ML.bronze.scaleMin} кг) — слиток на весах тревогу не поднимает, груз 2 кг его заменяет`);
-check(new Set(Object.values(ML).map((x) => x.color)).size === 4 && ['platinum', 'silver', 'bronze'].every((m) => !ML[m].map && ML[m].normal),
-  `вид: у металлов разные цвета (${Object.entries(ML).map(([k, v]) => `${k} ${v.color}`).join(', ')}), карта нормалей общая с золотом, запечённого золотого цвета у них нет`);
+check(new Set(Object.values(ML).map((x) => x.color)).size === 4 && ['platinum', 'silver', 'bronze'].every((m) => !ML[m].map && ML[m].normal && ML[m].ownStamp) && !ML.gold.ownStamp,
+  `вид: у металлов разные цвета (${Object.entries(ML).map(([k, v]) => `${k} ${v.color}`).join(', ')}); у платины, серебра и бронзы свои карты с клеймом своего металла, а не золотое «FINE GOLD»`);
 check(ML.silver.name === 'Серебряный слиток' && /платиновый/.test(ML.platinum.fall) && ML.gold.name === 'Золотой слиток',
   `названия зависят от металла: «${ML.gold.name}», «${ML.silver.name}», «${ML.platinum.fall}»`);
 for (const [m, r] of Object.entries(metals.runs)) check(r.won === r.total, `автопилот на металле «${m}»: пройдено ${r.won} из ${r.total} уровней, суммарное время ${r.time} с${r.failed.length ? ' — не пройдены: ' + r.failed.join('; ') : ''}`);

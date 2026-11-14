@@ -356,10 +356,11 @@ function pbr(set, extra = {}, physical = false) {
 }
 
 export async function createMaterials() {
-  const [gold, skin, glove, wood, concrete, tiles, velvet, glassMaps, vase, crown, gloveLight, felt, chips, dice, sleeve] = await Promise.all([
+  const [gold, skin, glove, wood, concrete, tiles, velvet, glassMaps, vase, crown, gloveLight, felt, chips, dice, sleeve, barMaps] = await Promise.all([
     loadSet('gold'), loadSet('skin'), loadSet('glove'), loadSet('wood_table', 1), loadSet('wall_concrete', 1),
     loadSet('floor_tiles', 1), loadSet('velvet_red', 1), loadGlassMaps(), loadSet('vase'), loadSet('crown'), tryLoad('glove_light_albedo'),
     loadSet('felt_green', 1), loadSet('chips'), loadSet('dice'), loadSet('sleeve'),
+    Promise.all(['platinum', 'silver', 'bronze'].map(async (m) => [m, await Promise.all([tryLoad(`bar_${m}_normal`), tryLoad(`bar_${m}_orm`)])])).then(Object.fromEntries),
   ]);
   const sets = { gold, skin, glove, wood, concrete, tiles, velvet, vase, crown, felt, chips, dice };
   const fallbacks = Object.entries(sets).filter(([, s]) => s.fallback).map(([k]) => k);
@@ -369,12 +370,18 @@ export async function createMaterials() {
   // Золото: металл, отражения берёт из PMREM-окружения.
   M.gold = pbr(gold, { color: 0xffc94a, envMapIntensity: 1.5, clearcoat: 0.15, clearcoatRoughness: 0.3 }, true);
   if (!gold.fallback) M.gold.color.set(0xffffff); // запечённое albedo уже золотое
-  // Другие металлы слитка (src/metals.js): те же карты нормалей и ORM, что у золота (клеймо, царапины, фаски),
-  // но без запечённого золотого цвета — цвет задан числом. Новой запечки в Blender для них не нужно.
-  const plainBar = { ...gold, map: null };
-  M.platinum = pbr(plainBar, { color: 0xe9e7e2, roughness: 0.9, metalness: 1, envMapIntensity: 1.7, clearcoat: 0.2, clearcoatRoughness: 0.25 }, true);   // светлая, чуть тёплая
-  M.silver = pbr(plainBar, { color: 0xb9c6d4, roughness: 0.7, metalness: 1, envMapIntensity: 1.9, clearcoat: 0.1, clearcoatRoughness: 0.2 }, true);      // холодное, самое зеркальное
-  M.bronze = pbr(plainBar, { color: 0xa35a34, roughness: 1.25, metalness: 0.85, envMapIntensity: 1.2 }, true);                                            // красновато-коричневая, матовее
+  // Другие металлы слитка (src/metals.js): тот же слиток (царапины, фаски, отпечаток пальца), но без запечённого
+  // золотого цвета — цвет задан числом.
+  // У каждого металла своё клеймо («FINE SILVER», «BRONZE»…), поэтому карты нормалей и ORM свои: bar_<металл>_*.
+  // Нет файлов — берутся карты золота (тогда на слитке останется надпись GOLD), и об этом пишется в отчёт об ассетах.
+  const barSet = (metal) => {
+    const [n, o] = barMaps[metal] || [];
+    if (!n || !o) { fallbacks.push(`bar_${metal}`); return { ...gold, map: null }; }
+    return { ...gold, map: null, normalMap: setup(n, false, 1), ormMap: setup(o, false, 1) };
+  };
+  M.platinum = pbr(barSet('platinum'), { color: 0xe9e7e2, roughness: 0.9, metalness: 1, envMapIntensity: 1.7, clearcoat: 0.2, clearcoatRoughness: 0.25 }, true);   // светлая, чуть тёплая
+  M.silver = pbr(barSet('silver'), { color: 0xb9c6d4, roughness: 0.7, metalness: 1, envMapIntensity: 1.9, clearcoat: 0.1, clearcoatRoughness: 0.2 }, true);      // холодное, самое зеркальное
+  M.bronze = pbr(barSet('bronze'), { color: 0xa35a34, roughness: 1.25, metalness: 0.85, envMapIntensity: 1.2 }, true);                                            // красновато-коричневая, матовее
   // Стекло: пропускание + разводы в шероховатости.
   M.glass = new THREE.MeshPhysicalMaterial({
     color: 0xffffff, metalness: 0, roughness: 1, roughnessMap: glassMaps.smudges,

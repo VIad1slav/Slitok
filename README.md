@@ -157,6 +157,7 @@ npm run build:win
 
 ## Подводные камни
 
+- **Клеймо на слитке запечено в текстуру.** Надпись «FINE GOLD 999.9» — часть карты нормалей и ORM, поэтому у платины, серебра и бронзы карты свои (`bar_<металл>_normal`, `bar_<металл>_orm`) с надписями «FINE PLATINUM 999.5», «FINE SILVER 999.9», «BRONZE CuSn12» и своим весом. Тексты клейм — `STAMPS` в `tools/blender/bake_textures.py`; перезапечь: `bake_textures.py -- only=bar_metals`, затем `npm run textures`. Новый металл без своих карт получит золотые (с надписью GOLD), и игра напишет об этом в отчёте об ассетах.
 - **Золото — эталон.** У золота `density: 1` и `slip: 1` в `src/metals.js`; на них умножаются масса и порог выскальзывания. Поменять эти единицы — значит изменить время автопилота на всех 40 уровнях (`BASELINE` в `tools/test/play.mjs`).
 - **Лёгкий слиток и весы.** Порог весов (`min` у ловушки `scale`) задан для золота и умножается на плотность металла. Без этого серебряный слиток (1,08 кг при пороге 1,6 кг) поднимал бы тревогу, просто лёжа на весах.
 - **Предел досягаемости надо ограничивать по глубине, а не тянуть точку к плечу.** Если тянуть к плечу по прямой, в узком отверстии кисть съезжает вбок и вверх и упирается в стекло.
@@ -195,7 +196,7 @@ blender --background --python tools/blender/build_all.py
 Если `blender` не в PATH, укажите полный путь к исполняемому файлу. Отдельные этапы: `build_models.py` (GLB + превью моделей) и `bake_textures.py` (запекание Cycles + превью; можно `-- only=gold,skin`). Параметры коробок берутся из `src/levels.js` через `node tools/export_levels.mjs`, поэтому после изменения размеров коробки или отверстия ассеты надо пересобрать — иначе игра покажет старое стекло при новой физике.
 
 - `assets/models/` — hand.glb (скелет: forearm, wrist, thumb/index/middle/ring/pinky _01.._03; в нём же рукав куртки — сетки `sleeve` на кости forearm и `sleeve_upper` выше локтя), gold_bar.glb, vase.glb, crown.glb, coins.glb, weight.glb, chips.glb, dice.glb, diamond.glb, ring.glb и watch.glb (украшения в координатах руки, игра вешает их на кости), camera.glb (cam_base и cam_head), shutter.glb (единичная пластина, растягивается под отверстие), glass_box.glb (стенки `L<id уровня>_<стенка>` и перегородки `L<id>_inner<номер>`; у этапов финала id вида `40s1`), table.glb, pedestal.glb, room.glb (стены и лампа), set_pawnshop.glb, set_museum.glb, set_bank.glb, set_casino.glb и set_boss.glb (обстановка ограблений).
-- `assets/textures/` — наборы `*_albedo.png`, `*_normal.png` (OpenGL), `*_orm.png` (R = AO, G = roughness, B = metalness) для gold, skin, glove, sleeve (ткань рукава), vase, crown, chips, dice и окружения (в том числе felt_green — сукно); `glove_light_albedo.png` — светлая перчатка под подкраску; `glass_smudges.png`, `glass_cracks_1..3.png`.
+- `assets/textures/` — наборы `*_albedo.png`, `*_normal.png` (OpenGL), `*_orm.png` (R = AO, G = roughness, B = metalness) для gold, skin, glove, sleeve (ткань рукава), bar_platinum / bar_silver / bar_bronze (слиток с клеймом своего металла, без albedo), vase, crown, chips, dice и окружения (в том числе felt_green — сукно); `glove_light_albedo.png` — светлая перчатка под подкраску; `glass_smudges.png`, `glass_cracks_1..3.png`.
 - `tools/blender/previews/` — превью для проверки глазами (рукав — `tex_sleeve*.png`).
 
 После пересборки в Blender текстуры надо заново перевести в WebP: `npm run textures`.

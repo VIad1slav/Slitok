@@ -30,7 +30,19 @@ SAMPLES = 128
 # ---------------------------------------------------------------------------
 # Маркировка слитка: рендерим текст сверху в чёрно-белую маску
 # ---------------------------------------------------------------------------
-def render_stamp(bar_cfg):
+# Клеймо по металлам (src/metals.js): название, проба и номинальный вес. Золото — исходное клеймо.
+# Строки: (верхняя надпись, её размер, проба, нижняя строка).
+STAMPS = {
+    "gold": ("FINE GOLD", 0.0105, "999.9", "No GG-004871   1000 g"),
+    "platinum": ("FINE PLATINUM", 0.0086, "999.5", "No GG-004871   1110 g"),
+    "silver": ("FINE SILVER", 0.0100, "999.9", "No GG-004871   540 g"),
+    "bronze": ("BRONZE", 0.0115, "CuSn12", "No GG-004871   460 g"),
+}
+BAR_METALS = ("platinum", "silver", "bronze")     # для них запекаются свои карты нормалей и ORM (bar_<металл>_*.png)
+
+
+def render_stamp(bar_cfg, metal="gold"):
+    title, title_size, grade, serial = STAMPS[metal]
     C.reset_scene()
     C.setup_cycles(32)
     scene = bpy.context.scene
@@ -50,9 +62,9 @@ def render_stamp(bar_cfg):
         ob.location = (x, y, 0)
         ob.data.materials.append(white)
 
-    text("FINE GOLD", 0.0105, 0.012, 0.0155)
-    text("999.9", 0.0185, 0.012, -0.0015)
-    text("No GG-004871   1000 g", 0.0062, 0.012, -0.0185)
+    text(title, title_size, 0.012, 0.0155)
+    text(grade, 0.0185 if len(grade) <= 5 else 0.0150, 0.012, -0.0015)
+    text(serial, 0.0062, 0.012, -0.0185)
     text("GG", 0.0105, -0.068, -0.0008)
     bpy.ops.mesh.primitive_torus_add(major_radius=0.0125, minor_radius=0.0009, major_segments=64, minor_segments=8, location=(-0.068, 0, 0))
     bpy.context.active_object.data.materials.append(white)
@@ -75,7 +87,7 @@ def render_stamp(bar_cfg):
     scene.render.resolution_percentage = 100
     scene.view_settings.view_transform = "Standard"
     scene.render.image_settings.file_format = "PNG"
-    path = os.path.join(C.CACHE, "stamp.png")
+    path = os.path.join(C.CACHE, "stamp.png" if metal == "gold" else f"stamp_{metal}.png")
     scene.render.filepath = path
     bpy.ops.render.render(write_still=True)
     print("[stamp]", C.rel(path))
@@ -598,6 +610,8 @@ def bake_all(only=None):
     stamp_path = os.path.join(C.CACHE, "stamp.png")
     if want("gold"):
         stamp_path = render_stamp(data["bar"])
+    # клейма других металлов: у каждого своя надпись, поэтому свои карты нормалей и шероховатости (цвет задаёт игра)
+    metal_stamps = {m: render_stamp(data["bar"], m) for m in BAR_METALS} if want("bar_metals") else {}
 
     C.reset_scene()
     C.setup_cycles(SAMPLES)
@@ -606,6 +620,18 @@ def bake_all(only=None):
         bar = M.build_bar(data["bar"])
         nt = assign(bar, "gold")
         C.bake_pbr(bar, nt, mat_gold(nt, stamp_path, data["bar"]), "gold", HERO)
+        bar.hide_render = True
+
+    if metal_stamps:
+        bar = M.build_bar(data["bar"])
+        for metal, path in metal_stamps.items():
+            nt = assign(bar, f"bar_{metal}")
+            ch = mat_gold(nt, path, data["bar"])
+            print(f"[bake] bar_{metal} {HERO}px")
+            C.save_png(os.path.join(C.TEXTURES, f"bar_{metal}_normal.png"), C.bake(bar, nt, ch, "normal", HERO)[:, :, :3])
+            rough = C.bake(bar, nt, ch, "rough", HERO)[:, :, 0]
+            occ = C.bake(bar, nt, ch, "ao", HERO)[:, :, 0]
+            C.save_png(os.path.join(C.TEXTURES, f"bar_{metal}_orm.png"), np.dstack([occ, rough, np.full_like(rough, 255)]))
         bar.hide_render = True
 
     if want("skin") or want("glove") or want("glove_light"):

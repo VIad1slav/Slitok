@@ -70,5 +70,45 @@
     "skin": "skin",
     "metal": "bronze",
     "lang": "ru"
+  },
+  {
+    "name": "stamp_gold",
+    "level": 1,
+    "start": true,
+    "side": true,
+    "skin": "skin",
+    "metal": "gold",
+    "hud": false,
+    "eval": "const b = g.items[0].position(); g.stage.sideLook.set(b.x, b.y, b.z); g.stage.sidePos.set(b.x, b.y + 0.3, b.z + 0.16);"
+  },
+  {
+    "name": "stamp_platinum",
+    "level": 1,
+    "start": true,
+    "side": true,
+    "skin": "skin",
+    "metal": "platinum",
+    "hud": false,
+    "eval": "const b = g.items[0].position(); g.stage.sideLook.set(b.x, b.y, b.z); g.stage.sidePos.set(b.x, b.y + 0.3, b.z + 0.16);"
+  },
+  {
+    "name": "stamp_silver",
+    "level": 1,
+    "start": true,
+    "side": true,
+    "skin": "skin",
+    "metal": "silver",
+    "hud": false,
+    "eval": "const b = g.items[0].position(); g.stage.sideLook.set(b.x, b.y, b.z); g.stage.sidePos.set(b.x, b.y + 0.3, b.z + 0.16);"
+  },
+  {
+    "name": "stamp_bronze",
+    "level": 1,
+    "start": true,
+    "side": true,
+    "skin": "skin",
+    "metal": "bronze",
+    "hud": false,
+    "eval": "const b = g.items[0].position(); g.stage.sideLook.set(b.x, b.y, b.z); g.stage.sidePos.set(b.x, b.y + 0.3, b.z + 0.16);"
   }
 ]
