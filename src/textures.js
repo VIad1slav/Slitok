@@ -190,6 +190,12 @@ const PROC = {
     const albedo = paint(S, (i) => [236 + n[i] * 10, 234 + n[i] * 10, 226 + n[i] * 10]);
     return { albedo, rough: n.map((v) => clamp01(0.25 + v * 0.1)), height: n, metal: 0, normalStrength: 0.3 };
   },
+  sleeve(S) {   // ткань рукава: графитовая, с мелким рубчиком
+    const n = fbm(S, 8, 8, 4, 91), fine = fbm(S, 128, 128, 2, 92);
+    const albedo = paint(S, (i) => { const v = 0.8 + n[i] * 0.25 + fine[i] * 0.15; return [58 * v, 61 * v, 70 * v]; });
+    const rough = fine.map((v) => clamp01(0.84 + v * 0.1));
+    return { albedo, rough, height: fine, metal: 0, normalStrength: 0.6 };
+  },
   velvet_red(S) {
     const n = fbm(S, 6, 6, 5, 71), fine = fbm(S, 96, 96, 2, 72);
     const albedo = paint(S, (i) => { const v = 0.75 + n[i] * 0.3 + fine[i] * 0.12; return [128 * v, 14 * v, 22 * v]; });
@@ -302,30 +308,39 @@ export async function loadGlassMaps() {
 //          (плюс слабая ровная добавка, не зависящая от цвета материала: чёрная перчатка в темноте иначе не видна).
 // Значения задаёт сцена (src/scene.js, HAND_GLOW): в темноте они слабее, но не ноль — пальцы видно всегда.
 // На физику и коллайдеры не влияет.
-export const HAND_LIGHT = { fill: { value: 0.3 }, rim: { value: 0.3 }, rimColor: { value: new THREE.Color(1.0, 0.9, 0.78) } };
+export const HAND_LIGHT = { fill: { value: 0.3 }, rim: { value: 0.3 }, rimColor: { value: new THREE.Color(1.0, 0.9, 0.78) },
+  nearScale: { value: 1 } };   // nearScale: 1 — рукав растворяется у камеры (вид от первого лица), 0 — не растворяется (вид сбоку)
 const _handLit = new WeakSet();
 /**
  * Включить подсветку «от камеры» у материала.
  * rimScale — доля кромки (у тёмного рукава она слабее, чтобы он не светился призраком);
  * nearFade — [d0, d1], м: ближе d1 к камере материал начинает растворяться, ближе d0 не виден совсем
  *            (рукав идёт к плечу игрока мимо самой камеры и не должен закрывать обзор). Материал должен быть transparent.
+ * lengthFade — [z0, z1], м: растворение вдоль модели по её собственной оси Z — от z0 (виден целиком) до z1 (не виден).
+ *            Так рукав выше локтя сходит на нет, и обрезанного торца в кадре не бывает. Материал должен быть transparent.
  */
-export function litForCamera(mat, { rimScale = 1, nearFade = null } = {}) {
+export function litForCamera(mat, { rimScale = 1, nearFade = null, lengthFade = null } = {}) {
   if (_handLit.has(mat)) return mat;
   _handLit.add(mat);
-  const fade = nearFade ? `diffuseColor.a *= smoothstep( ${nearFade[0].toFixed(3)}, ${nearFade[1].toFixed(3)}, length( vViewPosition ) );` : '';
+  let fade = nearFade ? `diffuseColor.a *= smoothstep( ${nearFade[0].toFixed(3)} * uArmNear, ${nearFade[1].toFixed(3)} * uArmNear + 0.001, length( vViewPosition ) );` : '';
+  if (lengthFade) fade += ` diffuseColor.a *= 1.0 - smoothstep( ${lengthFade[0].toFixed(3)}, ${lengthFade[1].toFixed(3)}, vArmLength );`;
   mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uArmNear = HAND_LIGHT.nearScale;
     shader.uniforms.uHandFill = HAND_LIGHT.fill; shader.uniforms.uHandRim = HAND_LIGHT.rim; shader.uniforms.uHandRimColor = HAND_LIGHT.rimColor;
+    if (lengthFade) shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying float vArmLength;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvArmLength = position.z;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uHandFill;\nuniform float uHandRim;\nuniform vec3 uHandRimColor;')
+      .replace('#include <common>', `#include <common>\nuniform float uHandFill;\nuniform float uHandRim;\nuniform vec3 uHandRimColor;
+uniform float uArmNear;${lengthFade ? '\nvarying float vArmLength;' : ''}`)
       .replace('#include <opaque_fragment>', `{
         float hlN = clamp( dot( normalize( normal ), normalize( vViewPosition ) ), 0.0, 1.0 );
         outgoingLight += diffuseColor.rgb * uHandFill * ( 0.35 + 0.65 * hlN ) + uHandRimColor * uHandRim * ${rimScale.toFixed(3)} * ( 0.12 + pow( 1.0 - hlN, 3.5 ) );
-        ${fade}
       }
-      #include <opaque_fragment>`);
+      #include <opaque_fragment>`)
+      // растворение ставится до точечного отсечения (alphahash) — иначе оно на него не влияет
+      .replace('#include <alphahash_fragment>', `${fade}
+#include <alphahash_fragment>`);
   };
-  mat.customProgramCacheKey = () => `handLight:${rimScale}:${nearFade ? nearFade.join('-') : ''}`;
+  mat.customProgramCacheKey = () => `handLight:${rimScale}:${nearFade ? nearFade.join('-') : ''}:${lengthFade ? lengthFade.join('-') : ''}`;
   mat.needsUpdate = true;
   return mat;
 }
@@ -341,10 +356,10 @@ function pbr(set, extra = {}, physical = false) {
 }
 
 export async function createMaterials() {
-  const [gold, skin, glove, wood, concrete, tiles, velvet, glassMaps, vase, crown, gloveLight, felt, chips, dice] = await Promise.all([
+  const [gold, skin, glove, wood, concrete, tiles, velvet, glassMaps, vase, crown, gloveLight, felt, chips, dice, sleeve] = await Promise.all([
     loadSet('gold'), loadSet('skin'), loadSet('glove'), loadSet('wood_table', 1), loadSet('wall_concrete', 1),
     loadSet('floor_tiles', 1), loadSet('velvet_red', 1), loadGlassMaps(), loadSet('vase'), loadSet('crown'), tryLoad('glove_light_albedo'),
-    loadSet('felt_green', 1), loadSet('chips'), loadSet('dice'),
+    loadSet('felt_green', 1), loadSet('chips'), loadSet('dice'), loadSet('sleeve'),
   ]);
   const sets = { gold, skin, glove, wood, concrete, tiles, velvet, vase, crown, felt, chips, dice };
   const fallbacks = Object.entries(sets).filter(([, s]) => s.fallback).map(([k]) => k);
@@ -382,7 +397,10 @@ export async function createMaterials() {
   M.velvet = pbr(velvet, { envMapIntensity: 0.1, sheen: 1, sheenRoughness: 0.4, sheenColor: new THREE.Color(0xff5060) }, true);
   M.metal = new THREE.MeshStandardMaterial({ color: 0x2a2c30, metalness: 0.9, roughness: 0.38, envMapIntensity: 0.6 });
   M.steel = new THREE.MeshStandardMaterial({ color: 0xaab0b8, metalness: 1, roughness: 0.12, envMapIntensity: 1.0 });
-  M.sleeve = new THREE.MeshStandardMaterial({ color: 0x15161b, metalness: 0, roughness: 0.92, envMapIntensity: 0.15 });   // рукав куртки: тёмный, но не чёрный — иначе он сливается в «трубу»
+  // Рукав куртки: запечённая графитовая саржа (манжета, шов, складки — из Blender) с лёгким ворсовым отблеском ткани.
+  // Цвет-множитель затемняет запечённую ткань: под прожектором сцены она иначе выходит светло-серой, а не графитовой.
+  M.sleeve = pbr(sleeve, { color: 0x9fa4b2, envMapIntensity: 0.2, sheen: 0.28, sheenRoughness: 0.65, sheenColor: new THREE.Color(0x7d879c) }, true);
+  if (sleeve.fallback) fallbacks.push('sleeve');
   M.lampGlow = new THREE.MeshBasicMaterial({ color: 0xfff1d0, toneMapped: false });
   M.stone = new THREE.MeshStandardMaterial({ color: 0x1b1e25, metalness: 0, roughness: 0.42, envMapIntensity: 0.5 });   // стол музея
   M.neonPink = new THREE.MeshBasicMaterial({ color: 0xff3fb4, toneMapped: false });

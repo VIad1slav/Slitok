@@ -1,0 +1,82 @@
+[
+  {
+    "name": "level_01",
+    "level": 1,
+    "t": 3.2,
+    "skin": "skin"
+  },
+  {
+    "name": "level_04",
+    "level": 4,
+    "t": 3.6,
+    "skin": "skin"
+  },
+  {
+    "name": "level_12",
+    "level": 12,
+    "t": 3.4,
+    "skin": "skin"
+  },
+  {
+    "name": "level_28_dark",
+    "level": 28,
+    "t": 2.0,
+    "dark": true,
+    "skin": "skin"
+  },
+  {
+    "name": "level_30",
+    "level": 30,
+    "t": 4.5,
+    "skin": "skin",
+    "accessory": "watch"
+  },
+  {
+    "name": "level_33",
+    "level": 33,
+    "t": 4.0,
+    "skin": "skin"
+  },
+  {
+    "name": "level_03_monkey",
+    "level": 3,
+    "t": 7.0,
+    "skin": "skin"
+  },
+  {
+    "name": "sideview_level_02",
+    "level": 2,
+    "t": 4.2,
+    "side": true,
+    "skin": "skin"
+  },
+  {
+    "name": "closeup_edge_crown",
+    "level": 15,
+    "frac": 0.62,
+    "side": true,
+    "skin": "glove_white",
+    "hud": false,
+    "eval": "const h = g.hand.pos; g.stage.sideLook.set(h.x, h.y, h.z + 0.14); g.stage.sidePos.set(h.x - 0.42, h.y + 0.22, h.z + 0.36);"
+  },
+  {
+    "name": "closeup_fist_bar",
+    "level": 1,
+    "t": 5.4,
+    "side": true,
+    "skin": "skin",
+    "accessory": "watch",
+    "hud": false,
+    "eval": "const h = g.hand.pos; g.stage.sideLook.set(h.x, h.y + 0.1, h.z + 0.05); g.stage.sidePos.set(h.x - 0.4, h.y + 0.2, h.z + 0.4);"
+  },
+  {
+    "name": "closeup_gold_glove",
+    "level": 33,
+    "t": 5.2,
+    "side": true,
+    "skin": "glove_gold",
+    "accessory": "ring",
+    "hud": false,
+    "eval": "const h = g.hand.pos; g.stage.sideLook.set(h.x + 0.14, h.y, h.z); g.stage.sidePos.set(h.x + 0.1, h.y + 0.3, h.z - 0.5);"
+  }
+]

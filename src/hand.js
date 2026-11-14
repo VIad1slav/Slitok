@@ -111,19 +111,26 @@ function buildPrimitiveHand(material) {
   return { root, bones, skinned: [] };
 }
 
+const isSleeve = (o) => o.name === 'sleeve' || o.name === 'sleeve_upper';
+
 function rigFromGlb(gltfScene, material) {
   const root = gltfScene, bones = {}, skinned = [];
+  const sleeve = {};   // части рукава из Blender: sleeve (предплечье, на кости forearm) и sleeve_upper (выше локтя)
   root.traverse((o) => {
     if (o.isBone) bones[o.name] = o;
-    if (o.isMesh) { o.material = material; o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; skinned.push(o); }
+    if (!o.isMesh) return;
+    o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
+    if (isSleeve(o)) sleeve[o.name] = o; else { o.material = material; skinned.push(o); }
   });
-  return { root, bones, skinned };
+  return { root, bones, skinned, sleeve };
 }
 
 // На каком расстоянии от камеры рукав растворяется: ближе первого числа (м) не виден, дальше второго — виден целиком.
 const ARM_NEAR_FADE = [0.3, 0.62];
 // Сколько метров рукава выше локтя рисуется (к концу он растворяется).
 const ARM_VISIBLE = 0.24;
+// Рукав из Blender выше локтя: до первого числа (м от локтя) виден целиком, ко второму растворяется.
+const ARM_LENGTH_FADE = [0.09, 0.29];
 
 // ---------------------------------------------------------------------------
 export class Hand {
@@ -176,23 +183,42 @@ export class Hand {
     this.usedGlb = !!glbScene;
     this.group.add(this.rig.root);
     this._setupRig();
-    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.052, 0.13, 20), M.sleeve);
-    cuff.geometry.rotateX(Math.PI / 2); cuff.geometry.scale(1, 0.86, 1); cuff.position.set(0, 0, 0.27); cuff.castShadow = true;
-    this.group.add(cuff);
-    // Рукав выше локтя — только картинка (коллайдеры плеча те же, что были). Он короткий и растворяется:
-    // целиком до плеча он закрывал бы круг «сейфа» и треть стола. Рядом с камерой растворяется совсем (nearFade).
-    const upGeo = new THREE.CylinderGeometry(0.044, 0.05, 1, 20, 1, true); upGeo.translate(0, 0.5, 0);
-    const fc = document.createElement('canvas'); fc.width = 4; fc.height = 64;
-    const fg = fc.getContext('2d'), grad = fg.createLinearGradient(0, 64, 0, 0);
-    grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.15, '#ffffff'); grad.addColorStop(1, '#000000');
-    fg.fillStyle = grad; fg.fillRect(0, 0, 4, 64);
-    const upMat = M.sleeve.clone(); upMat.alphaMap = new THREE.CanvasTexture(fc); upMat.transparent = true;
-    const ballMat = M.sleeve.clone(); ballMat.transparent = true;
-    litForCamera(M.sleeve, { rimScale: 0.3 }); litForCamera(M.skin);
-    litForCamera(upMat, { rimScale: 0.3, nearFade: ARM_NEAR_FADE }); litForCamera(ballMat, { rimScale: 0.3, nearFade: ARM_NEAR_FADE });
-    this.upper = new THREE.Mesh(upGeo, upMat); this.upper.renderOrder = 8;
-    this.elbowBall = new THREE.Mesh(new THREE.SphereGeometry(0.05, 20, 14), ballMat); this.elbowBall.renderOrder = 8; this.elbowBall.castShadow = true;
-    scene.add(this.upper, this.elbowBall);
+    // Рукав куртки. Предплечье в рукаве — часть модели руки (сетка sleeve на кости forearm): манжета, складки, ткань.
+    // Выше локтя — сетка sleeve_upper: игра поворачивает её от локтя к плечу игрока. Это только картинка — коллайдеры
+    // плеча те же, что были. К концу она плавно растворяется (lengthFade), а рядом с камерой исчезает совсем (nearFade),
+    // поэтому обрезанного торца в кадре нет и обзор она не закрывает.
+    const fore = this.rig.sleeve?.sleeve, up = this.rig.sleeve?.sleeve_upper;
+    this.usedSleeveGlb = !!(fore && up);
+    litForCamera(M.skin);
+    if (this.usedSleeveGlb) {
+      fore.material = litForCamera(M.sleeve, { rimScale: 0.45 });
+      // Растворение — точечное (alphaHash), а не полупрозрачность: полупрозрачные предметы three.js не показывает
+      // сквозь стекло с преломлением, и на виде сбоку рукав обрывался бы у локтя.
+      const upMat = M.sleeve.clone(); upMat.alphaHash = true;
+      litForCamera(upMat, { rimScale: 0.45, nearFade: ARM_NEAR_FADE, lengthFade: ARM_LENGTH_FADE });
+      up.removeFromParent(); up.position.set(0, 0, 0); up.quaternion.identity(); up.scale.set(1, 1, 1);
+      up.material = upMat; up.castShadow = false; up.receiveShadow = false;
+      this.upper = up; this.elbowBall = null;
+      scene.add(up);
+    } else {
+      const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.047, 0.052, 0.13, 20), M.sleeve);
+      cuff.geometry.rotateX(Math.PI / 2); cuff.geometry.scale(1, 0.86, 1); cuff.position.set(0, 0, 0.27); cuff.castShadow = true;
+      this.group.add(cuff);
+      // Рукав выше локтя — только картинка (коллайдеры плеча те же, что были). Он короткий и растворяется:
+      // целиком до плеча он закрывал бы круг «сейфа» и треть стола. Рядом с камерой растворяется совсем (nearFade).
+      const upGeo = new THREE.CylinderGeometry(0.044, 0.05, 1, 20, 1, true); upGeo.translate(0, 0.5, 0);
+      const fc = document.createElement('canvas'); fc.width = 4; fc.height = 64;
+      const fg = fc.getContext('2d'), grad = fg.createLinearGradient(0, 64, 0, 0);
+      grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.15, '#ffffff'); grad.addColorStop(1, '#000000');
+      fg.fillStyle = grad; fg.fillRect(0, 0, 4, 64);
+      const upMat = M.sleeve.clone(); upMat.alphaMap = new THREE.CanvasTexture(fc); upMat.transparent = true;
+      const ballMat = M.sleeve.clone(); ballMat.transparent = true;
+      litForCamera(M.sleeve, { rimScale: 0.3 });
+      litForCamera(upMat, { rimScale: 0.3, nearFade: ARM_NEAR_FADE }); litForCamera(ballMat, { rimScale: 0.3, nearFade: ARM_NEAR_FADE });
+      this.upper = new THREE.Mesh(upGeo, upMat); this.upper.renderOrder = 8;
+      this.elbowBall = new THREE.Mesh(new THREE.SphereGeometry(0.05, 20, 14), ballMat); this.elbowBall.renderOrder = 8; this.elbowBall.castShadow = true;
+      scene.add(this.upper, this.elbowBall);
+    }
   }
 
   /** Запоминаем позу покоя костей и ось сгиба каждой фаланги (в локальных координатах кости). */
@@ -226,7 +252,7 @@ export class Hand {
       mat.color.set(cosmetic.tint);
     }
     litForCamera(mat);                       // подсветка «от камеры»: пальцы читаются с любой стороны
-    this.rig.root.traverse((o) => { if (o.isMesh && !this._isAccessory(o)) o.material = mat; });
+    this.rig.root.traverse((o) => { if (o.isMesh && !this._isAccessory(o) && !isSleeve(o)) o.material = mat; });
   }
 
   _isAccessory(o) { for (let p = o; p; p = p.parent) if (p === this.accessory) return true; return false; }
@@ -569,10 +595,15 @@ export class Hand {
     _a.set(0, 0, G.forearmLength).applyQuaternion(this.quat).add(this.wrist);
     _b.copy(this.shoulder).sub(_a);
     const len = _b.length();
-    this.elbowBall.position.copy(_a);
-    this.upper.position.copy(_a);
-    this.upper.quaternion.setFromUnitVectors(_c.set(0, 1, 0), _b.multiplyScalar(1 / len));
-    this.upper.scale.set(1, Math.min(len, ARM_VISIBLE), 1);
+    if (this.usedSleeveGlb) {      // сетка из Blender тянется вдоль своей оси +Z от локтя
+      this.upper.position.copy(_a);
+      this.upper.quaternion.setFromUnitVectors(_c.set(0, 0, 1), _b.multiplyScalar(1 / len));
+    } else {
+      this.elbowBall.position.copy(_a);
+      this.upper.position.copy(_a);
+      this.upper.quaternion.setFromUnitVectors(_c.set(0, 1, 0), _b.multiplyScalar(1 / len));
+      this.upper.scale.set(1, Math.min(len, ARM_VISIBLE), 1);
+    }
   }
 }
 

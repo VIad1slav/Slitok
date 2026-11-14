@@ -254,6 +254,75 @@ def mat_glove(nt, light=False):
     return dict(color=col, rough=rough, metal=0.0, normal=normal)
 
 
+def mat_sleeve(nt, cuff=True):
+    """Ткань куртки: графитовая саржа. cuff=True — рукав предплечья: резинка манжеты, шов над ней, строчка.
+    Работает в координатах объекта: y — вдоль руки, угол вокруг руки считается от осей X и Z."""
+    P = nt.coords("Object")
+    px, py, pz = nt.sep(P)
+    ang = nt.math("ARCTAN2", pz, px)                           # -pi..pi; низ руки — около -pi/2
+    twill = nt.math("SINE", nt.mul(nt.add(py, nt.mul(ang, 0.042)), 3900.0))        # диагональный рубчик саржи, шаг 1,6 мм
+    cloth = nt.noise(P, 55, 3, 0.6)
+    patch = nt.noise(P, 9, 2, 0.5)
+    under = nt.sub(1.0, nt.smoothstep(nt.math("ABSOLUTE", nt.add(ang, 1.5708)), 0.0, 0.035))       # продольный шов снизу
+    side_st = nt.sub(1.0, nt.smoothstep(nt.math("ABSOLUTE", nt.sub(nt.math("ABSOLUTE", nt.add(ang, 1.5708)), 0.085)), 0.0, 0.014))
+    side_st = nt.mul(side_st, nt.smoothstep(nt.math("SINE", nt.mul(py, 1900.0)), 0.0, 0.35))       # строчка по обе стороны шва
+
+    col = nt.mix(cloth, (0.040, 0.043, 0.050, 1), (0.078, 0.083, 0.095, 1))
+    col = nt.mix(nt.mul(patch, 0.5), col, (0.060, 0.066, 0.080, 1))
+    col = nt.mix(nt.mul(nt.smoothstep(twill, 0.0, 0.9), 0.38), col, (0.120, 0.127, 0.145, 1))
+    rough = nt.add(0.84, nt.mul(cloth, 0.1))
+    height = nt.mul(twill, 0.22)
+    height = nt.sub(height, nt.mul(under, 0.9))
+    height = nt.add(height, nt.mul(side_st, 0.5))
+    stitch = side_st
+
+    if cuff:
+        lo, hi = M.SLEEVE_CUFF
+        on_cuff = nt.mul(nt.smoothstep(py, lo - 0.0004, lo + 0.0012), nt.sub(1.0, nt.smoothstep(py, hi - 0.002, hi)))
+        ribs = nt.math("SINE", nt.mul(ang, 40.0))                                   # рубчик резинки вдоль руки
+        groove = nt.sub(1.0, nt.smoothstep(nt.math("ABSOLUTE", nt.sub(py, lo + 0.003)), 0.0, 0.0022))   # канавка шва
+        st = nt.sub(1.0, nt.smoothstep(nt.math("ABSOLUTE", nt.sub(py, lo - 0.0052)), 0.0, 0.0011))     # строчка над манжетой
+        st = nt.mul(st, nt.smoothstep(nt.math("SINE", nt.mul(ang, 64.0)), 0.0, 0.35))
+        stitch = nt.maxf(stitch, st)
+        col = nt.mix(on_cuff, col, nt.mix(nt.smoothstep(ribs, -0.3, 0.6), (0.030, 0.032, 0.038, 1), (0.066, 0.070, 0.082, 1)))
+        col = nt.mix(nt.mul(groove, 0.8), col, (0.016, 0.017, 0.020, 1))
+        rough = nt.mixf(on_cuff, rough, 0.78)
+        height = nt.mixf(on_cuff, height, nt.mul(ribs, 0.75))
+        height = nt.sub(height, nt.mul(groove, 1.4))
+        height = nt.add(height, nt.mul(st, 0.6))
+    col = nt.mix(nt.mul(stitch, 0.85), col, (0.30, 0.31, 0.34, 1))
+    col = nt.mix(nt.mul(under, 0.6), col, (0.022, 0.024, 0.028, 1))
+    return dict(color=col, rough=rough, metal=0.0, normal=nt.bump(height, strength=0.75, distance=0.0006))
+
+
+def bake_sleeve(size):
+    """Рукав: две части (предплечье и плечо) запекаются по очереди и складываются в одну картинку по своим полосам развёртки."""
+    fore, upper = M.build_sleeve()
+    split = (M.SLEEVE_UV["sleeve"][1] + M.SLEEVE_UV["sleeve_upper"][0]) / 2
+    rows = (1.0 - (np.arange(size) + 0.5) / size) < split        # строки картинки, принадлежащие предплечью
+    maps = {}
+    for obj, cuff in ((fore, True), (upper, False)):
+        other = upper if obj is fore else fore
+        other.hide_render = True
+        obj.hide_render = False
+        nt = assign(obj, "sleeve")
+        ch = mat_sleeve(nt, cuff=cuff)
+        part = dict(albedo=C.bake(obj, nt, ch, "color", size)[:, :, :3], normal=C.bake(obj, nt, ch, "normal", size)[:, :, :3],
+                    rough=C.bake(obj, nt, ch, "rough", size)[:, :, 0], ao=C.bake(obj, nt, ch, "ao", size)[:, :, 0])
+        for k, arr in part.items():
+            if k not in maps:
+                maps[k] = arr.copy()
+            elif cuff:
+                maps[k][rows] = arr[rows]
+            else:
+                maps[k][~rows] = arr[~rows]
+    fore.hide_render = upper.hide_render = True
+    print(f"[bake] sleeve {size}px")
+    C.save_png(os.path.join(C.TEXTURES, "sleeve_albedo.png"), maps["albedo"])
+    C.save_png(os.path.join(C.TEXTURES, "sleeve_normal.png"), maps["normal"])
+    C.save_png(os.path.join(C.TEXTURES, "sleeve_orm.png"), np.dstack([maps["ao"], maps["rough"], np.zeros_like(maps["rough"])]))
+
+
 def mat_vase(nt):
     """Фарфор: белая глазурь, кобальтовые пояски и волна, тонкая сетка кракелюра."""
     P = nt.coords("Object")
@@ -555,6 +624,9 @@ def bake_all(only=None):
             C.save_png(os.path.join(C.TEXTURES, "glove_light_albedo.png"), C.bake(hand, nt, mat_glove(nt, light=True), "color", HERO)[:, :, :3])
         hand.hide_render = True
 
+    if want("sleeve"):
+        bake_sleeve(ENV)
+
     if want("vase"):
         vase = M.build_vase()
         nt = assign(vase, "vase")
@@ -654,6 +726,23 @@ def previews():
         C.render_preview(f"tex_hand_{tex}_top", (-0.2, 0.3, 0.34), (0.0, 0.04, 0.0), lens=65, floor=-0.06, key=10)
         M.pose_hand(rig, 0.55)
         C.render_preview(f"tex_hand_{tex}_grip", (-0.24, 0.3, -0.12), (0.0, 0.06, -0.02), lens=70, key=10)
+
+    if have("sleeve_albedo.png") and have("skin_albedo.png"):
+        C.reset_scene()
+        hand, rig = M.build_hand()
+        hand.data.materials.clear()
+        hand.data.materials.append(textured("skin_tex", "skin"))
+        fore, upper = M.build_sleeve()
+        upper.location = (0, M.SLEEVE_ELBOW_Y, 0)
+        cloth = textured("sleeve_tex", "sleeve")
+        for o in (fore, upper):
+            o.data.materials.clear()
+            o.data.materials.append(cloth)
+        C.render_preview("tex_sleeve", (-0.40, 0.02, 0.28), (0.0, -0.16, 0.0), lens=50, floor=-0.07, key=10)
+        C.render_preview("tex_sleeve_cuff", (-0.17, 0.12, 0.15), (0.0, -0.06, 0.0), lens=75, key=10)
+        C.render_preview("tex_sleeve_under", (0.22, 0.06, -0.26), (0.0, -0.12, 0.0), lens=55, key=10)
+        M.pose_hand(rig, 0.85)
+        C.render_preview("tex_sleeve_fist", (-0.24, 0.26, 0.12), (0.0, -0.02, -0.01), lens=60, key=10)
 
     if have("glass_smudges.png"):
         C.reset_scene()

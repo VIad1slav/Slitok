@@ -264,6 +264,135 @@ def _skin(obj, arm_obj, chains):
     return bad == 0
 
 
+# ---------------------------------------------------------------------------
+# Рукав куртки
+# ---------------------------------------------------------------------------
+# Две части в одном файле hand.glb:
+#   sleeve        — рукав на предплечье: манжета у запястья, складки, скруглённый конец у локтя.
+#                   Привязан к кости forearm (в игре предплечье и кисть — одна жёсткая «палка»).
+#   sleeve_upper  — рукав выше локтя: отдельный объект с началом координат в локте, тянется вдоль -Y.
+#                   Игра сама поворачивает его к плечу игрока и растворяет к концу, поэтому торца в кадре нет.
+# Обе части лежат в одной развёртке: по u — вокруг руки (шов снизу), по v — вдоль; нижняя часть картинки — предплечье,
+# верхняя — плечо (SLEEVE_UV). Текстуру запекает bake_textures.py (ключ sleeve).
+SLEEVE_ELBOW_Y = -0.32          # локоть в координатах руки; в игре это HAND_GEOM.forearmLength = 0.32
+SLEEVE_CUFF = (-0.0925, -0.058)  # манжета: от шва до переднего края. Часы сидят на запястье перед ней (y от -0.05 до -0.02)
+SLEEVE_UV = {"sleeve": (0.02, 0.60), "sleeve_upper": (0.64, 0.98)}
+SLEEVE_SEG = 28                 # граней вокруг руки; мелкий рельеф (рубчик манжеты, саржа) — в карте нормалей, не в сетке
+# профили: (y, полуширина X, полувысота Z, сдвиг центра по Z)
+SLEEVE_FORE = [
+    (-0.0575, 0.0288, 0.0212, 0.0),      # край манжеты подвёрнут внутрь, к коже
+    (-0.0592, 0.0338, 0.0270, 0.0),
+    (-0.0630, 0.0364, 0.0300, 0.0),      # валик манжеты
+    (-0.0850, 0.0368, 0.0306, 0.0),
+    (-0.0893, 0.0350, 0.0288, 0.0),      # шов: канавка между манжетой и рукавом
+    (-0.0925, 0.0347, 0.0285, 0.0),
+    (-0.0975, 0.0390, 0.0327, -0.0006),  # ткань собрана над манжетой
+    (-0.1150, 0.0408, 0.0343, -0.0012),
+    (-0.1600, 0.0418, 0.0351, -0.0018),
+    (-0.2200, 0.0448, 0.0380, -0.0022),
+    (-0.2750, 0.0470, 0.0402, -0.0020),
+    (-0.3100, 0.0486, 0.0420, -0.0010),  # локоть
+    (-0.3350, 0.0466, 0.0406, 0.0),
+    (-0.3520, 0.0360, 0.0312, 0.0),
+    (-0.3600, 0.0160, 0.0140, 0.0),
+]
+SLEEVE_UPPER = [
+    (0.0380, 0.0170, 0.0160, 0.0),       # скруглённое начало — оно спрятано внутри рукава предплечья
+    (0.0260, 0.0370, 0.0350, 0.0),
+    (0.0060, 0.0470, 0.0440, 0.0),
+    (-0.0250, 0.0500, 0.0462, 0.0),      # локоть
+    (-0.0900, 0.0500, 0.0460, 0.0),
+    (-0.3000, 0.0520, 0.0480, 0.0),
+]
+
+
+def _sleeve_wrinkle(part, y, a):
+    """Складки ткани: добавка к радиусу, м. a — угол вокруг руки, y — координата вдоль неё."""
+    def bump(lo, hi):          # плавный «холм» между lo и hi
+        t = (y - lo) / (hi - lo)
+        return 0.0 if t <= 0 or t >= 1 else math.sin(math.pi * t) ** 2
+    if part == "sleeve":
+        if y > SLEEVE_CUFF[0]:                       # манжета гладкая
+            return 0.0
+        near_cuff = bump(-0.150, -0.0925)            # сборки над манжетой
+        elbow = bump(-0.345, -0.235)                 # заломы у локтя
+        mid = 0.35
+    else:
+        near_cuff = 0.0
+        elbow = bump(-0.14, 0.03)
+        mid = 0.45
+    rings = math.sin(y * 330.0 + 1.1 * math.sin(a + 0.6)) * (0.55 + 0.45 * math.sin(a * 2.0 + 0.4))    # заломы поперёк руки
+    drape = math.sin(a * 3.0 + y * 46.0 + 1.3) * 0.5 + math.sin(a * 5.0 - y * 83.0 + 0.2) * 0.3 + math.sin(a * 2.0 + y * 21.0 + 2.1) * 0.4
+    sag = -0.5 * (1.0 + math.sin(a)) * 0.0 + (0.6 if math.sin(a) < -0.3 else 0.0)                       # снизу ткань чуть провисает
+    return 0.0011 * near_cuff * (rings * 0.9 + drape * 0.5) + 0.0017 * elbow * (rings + drape * 0.45) + 0.00055 * mid * drape + 0.0006 * mid * sag
+
+
+def _sleeve_part(name, profile, step=0.0065):
+    """Труба по профилю со складками и развёрткой. Передний край открыт, задний закрыт (если профиль сходится)."""
+    seg = SLEEVE_SEG
+    # профиль пересчитывается с шагом step, чтобы складкам хватало вершин
+    rings = []
+    for (y0, rx0, rz0, zc0), (y1, rx1, rz1, zc1) in zip(profile, profile[1:]):
+        n = max(1, int(round(abs(y1 - y0) / step)))
+        for k in range(n):
+            t = k / n
+            rings.append((y0 + (y1 - y0) * t, rx0 + (rx1 - rx0) * t, rz0 + (rz1 - rz0) * t, zc0 + (zc1 - zc0) * t))
+    rings.append(profile[-1])
+    length = [0.0]
+    for r0, r1 in zip(rings, rings[1:]):
+        length.append(length[-1] + math.hypot(r1[0] - r0[0], r1[1] - r0[1]))
+    v0, v1 = SLEEVE_UV[name]
+
+    bm = bmesh.new()
+    uv = bm.loops.layers.uv.new("UVMap")
+    loops = []
+    for (y, rx, rz, zc) in rings:
+        row = []
+        for i in range(seg):
+            a = -math.pi / 2 + 2 * math.pi * i / seg          # шов развёртки — снизу
+            w = _sleeve_wrinkle(name, y, a)
+            row.append(bm.verts.new(((rx + w) * math.cos(a), y, zc + (rz + w) * math.sin(a))))
+        loops.append(row)
+    for r, (a, b) in enumerate(zip(loops, loops[1:])):
+        va, vb = v0 + (v1 - v0) * length[r] / length[-1], v0 + (v1 - v0) * length[r + 1] / length[-1]
+        for i in range(seg):
+            j = (i + 1) % seg
+            f = bm.faces.new((a[i], b[i], b[j], a[j]))
+            for loop, (uu, vv) in zip(f.loops, ((i / seg, va), (i / seg, vb), ((i + 1) / seg, vb), ((i + 1) / seg, va))):
+                loop[uv].uv = (uu, vv)
+    if profile[-1][1] < 0.02:                                   # сходящийся конец закрываем
+        f = bm.faces.new(loops[-1])
+        for loop in f.loops:
+            loop[uv].uv = (0.5, v1)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    obj = C.new_object(name, me)
+    C.shade_smooth(obj)
+    obj.data.materials.append(C.get_material("sleeve", (0.07, 0.075, 0.085, 1), 0.0, 0.85))
+    return obj
+
+
+def build_sleeve():
+    """Рукав куртки: (предплечье, плечо). Обе части в своих координатах: предплечье — в координатах руки, плечо — от локтя вдоль -Y."""
+    fore = _sleeve_part("sleeve", SLEEVE_FORE)
+    upper = _sleeve_part("sleeve_upper", SLEEVE_UPPER, step=0.011)
+    print(f"[sleeve] предплечье {len(fore.data.polygons)} граней, плечо {len(upper.data.polygons)} граней")
+    return fore, upper
+
+
+def attach_sleeve(fore, arm_obj):
+    """Привязать рукав предплечья к кости forearm, не сдвинув его с места."""
+    world = fore.matrix_world.copy()
+    fore.parent = arm_obj
+    fore.parent_type = "BONE"
+    fore.parent_bone = "forearm"
+    bpy.context.view_layer.update()
+    fore.matrix_world = world
+    bpy.context.view_layer.update()
+
+
 def pose_hand(arm_obj, curl):
     """Согнуть пальцы (0..1) — для проверки скиннинга на превью."""
     chains = hand_chains()

@@ -88,6 +88,8 @@ const info = await page.evaluate(() => {
 });
 console.log('GPU:', info.renderer);
 check(info.report.missingModels.length === 0 && info.report.fallbackTextures.length === 0, `все модели и текстуры из Blender загружены (${JSON.stringify(info.report)})`);
+const sleeveInfo = await page.evaluate(() => { const h = window.__gg.hand, f = h.rig.sleeve?.sleeve; return { glb: h.usedSleeveGlb, bone: f?.parent?.name, tex: !!f?.material?.map, upper: h.upper?.name, bones: Object.keys(h.rig.bones).length }; });
+check(sleeveInfo.glb && sleeveInfo.bone === 'forearm' && sleeveInfo.tex && sleeveInfo.upper === 'sleeve_upper' && sleeveInfo.bones === 17, `рукав куртки взят из hand.glb: предплечье на кости ${sleeveInfo.bone}, ткань с текстурой, часть выше локтя — ${sleeveInfo.upper}; костей в скелете по-прежнему ${sleeveInfo.bones}`);
 check(info.report.pngTextures.length === 0, `все текстуры взяты из WebP${info.report.pngTextures.length ? ', кроме: ' + info.report.pngTextures.join(', ') : ''}`);
 
 // --- сохранение и замки

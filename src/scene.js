@@ -407,6 +407,7 @@ export class Stage {
     this.spot.intensity *= lit; this.rim.intensity = this.rimBase * lit; this.fill.intensity *= 0.1 + 0.9 * lit;
     this.cone.material.opacity = 0.013 * lit; this.dust.material.opacity = 0.38 * lit;
     if (Math.abs(lit - this.litApplied) > 0.004) this._applyDarkness(lit);
+    HAND_LIGHT.nearScale.value = 1 - this.sideBlend;   // на виде сбоку камера далеко от плеча — рукав виден целиком
     HAND_LIGHT.fill.value = HAND_GLOW.fill * (HAND_GLOW.darkFill + (1 - HAND_GLOW.darkFill) * lit);
     HAND_LIGHT.rim.value = HAND_GLOW.rim * (HAND_GLOW.darkRim + (1 - HAND_GLOW.darkRim) * lit);
   }

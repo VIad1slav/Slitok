@@ -19,8 +19,13 @@ def main():
     # --- рука
     C.reset_scene()
     hand, rig = M.build_hand()
-    C.export_glb(os.path.join(C.MODELS, "hand.glb"), [hand, rig], skins=True)
+    fore, upper = M.build_sleeve()                      # рукав куртки: предплечье на кости forearm, плечо — отдельный объект
+    M.attach_sleeve(fore, rig)
+    C.export_glb(os.path.join(C.MODELS, "hand.glb"), [hand, rig, fore, upper], skins=True)
+    upper.location = (0, M.SLEEVE_ELBOW_Y, 0)           # для превью ставим плечо на место — как продолжение предплечья
     C.render_preview("model_hand_rest", (-0.30, 0.34, 0.36), (0.0, -0.02, 0.0), lens=55, floor=-0.06, key=10)
+    C.render_preview("model_sleeve", (-0.42, -0.02, 0.30), (0.0, -0.18, 0.0), lens=50, floor=-0.07, key=10)
+    C.render_preview("model_sleeve_cuff", (-0.20, 0.10, 0.16), (0.0, -0.07, 0.0), lens=70, key=10)
     M.pose_hand(rig, 0.85)
     C.render_preview("model_hand_fist", (-0.26, 0.36, -0.02), (0.0, 0.03, -0.02), lens=60, key=10)
     C.render_preview("model_hand_fist_top", (0.12, 0.36, 0.3), (0.0, 0.04, -0.01), lens=70, key=10)
