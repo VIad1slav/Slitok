@@ -13,8 +13,10 @@
 //   5. физика: рука не проходит сквозь стекло, стекло бьётся, ловушка для обезьян держит;
 //   6. рука читается в кадре: пальцы отличаются от фона во всех пяти обстановках и в темноте;
 //   7. достижения: правила выдачи и то, что игра сама сообщает о событиях;
-//   8. настройки: качество графики, предел кадров, инверсия, чувствительность, громкость — применяются и сохраняются;
-//   9. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
+//   8. HUD: на пяти разрешениях и двух языках индикатор захвата не пересекается с подсказкой, элементы HUD
+//      не наезжают друг на друга и не выходят за край экрана;
+//   9. настройки: качество графики, предел кадров, инверсия, чувствительность, громкость — применяются и сохраняются;
+//   10. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
@@ -432,6 +434,54 @@ const handSeen = await page.evaluate(async () => {
   return out;
 });
 for (const h of handSeen) check(h.lit >= 12, `рука в кадре, уровень ${h.id}${h.dark ? ' (темнота)' : ''}, ${h.skin === 'skin' ? 'кожа' : 'чёрная перчатка'}: отличие пальцев от фона ${h.lit} из 255 (без подсветки было бы ${h.plain})`);
+
+// --- HUD: ничего не перекрывается и не выходит за экран
+// На каждом разрешении и языке включается всё сразу: индикатор захвата, подсказка, тревога с отсчётом, сообщение,
+// полоска, счётчик кадров, надпись «кликни». Затем сравниваются рамки (bounding box) всех видимых элементов.
+const HUD_SIZES = [[1280, 720], [1366, 768], [1920, 1080], [2560, 1440], [3840, 2160]];
+const hudBad = [], hudSeen = { lines: new Set(), scales: new Set(), cases: 0, gaps: [] };
+await page.evaluate(() => window.__gg.applySettings({ quality: 'low' }));   // 4K-кадры здесь не важны, важна вёрстка
+for (const [w, h] of HUD_SIZES) {
+  await page.setViewportSize({ width: w, height: h });
+  for (const lang of ['en', 'ru']) {
+    const res = await page.evaluate(async ([lang]) => {
+      const g = window.__gg, I = await import('/src/i18n/index.js'), { LEVELS } = await import('/src/levels.js'), out = [];
+      g.setLanguage(lang);
+      const frames = (n) => new Promise((r) => { const tick = () => (n-- > 0 ? requestAnimationFrame(tick) : r()); tick(); });
+      const box = (sel) => { const e = document.querySelector(sel); if (!e || e.hidden || !e.getClientRects().length || getComputedStyle(e).display === 'none') return null; const r = e.getBoundingClientRect(); return r.width && r.height ? { sel, l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
+      const hit = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5;
+      const noHint = { ...LEVELS.find((l) => l.id === 1), id: 9003, name: 'no hint', hint: '' };
+      const longest = Object.keys(I).length && ['trap.cameraWatch', 'toast.cracked', 'trap.darkWarn'].map((k) => I.t(k, { name: I.t('loot.bigbar.name') })).sort((a, b) => b.length - a.length)[0];
+      const longHint = { ...LEVELS.find((l) => l.id === 1), id: 9004, name: 'long hint', hint: (I.t('level.36.hint') + ' ' + I.t('level.39.hint')).slice(0, 250) };   // подсказка в три строки
+      for (const lvl of [1, 3, 16, 36, 39, 40, noHint, longHint]) {
+        if (typeof lvl === 'object') g.startLevelDef(lvl); else g.startLevelById(lvl);
+        g.timeScale = 0; g.hand.grabReady = true;
+        g.alarm(99, I.t('trap.shutterAlarm')); g.toast(longest); g.hud.meter = { label: I.t('meter.weight'), value: 0.7, mark: 0.5 }; g.ui.setFps(144);
+        await frames(3);
+        const hintEl = document.querySelector('.hud .hint'), lh = parseFloat(getComputedStyle(hintEl).lineHeight) || 20;
+        const lines = hintEl.textContent ? Math.round((hintEl.clientHeight - 18) / lh) : 0;
+        const els = ['.hud .tl', '.hud .tr', '.hud .alarm', '.hud .toast', '.hud .grab', '.hud .hint', '.hud .clickme', '.fpsbox'].map(box).filter(Boolean);
+        const grab = els.find((e) => e.sel === '.hud .grab'), hint = els.find((e) => e.sel === '.hud .hint');
+        const where = `${innerWidth}×${innerHeight} ${lang}, уровень ${typeof lvl === 'object' ? lvl.name : lvl}`;
+        const row = { lines, zoom: g.ui.scale, gap: grab && hint ? hint.t - grab.b : null, bad: [] };
+        if (!grab || getComputedStyle(document.querySelector('.hud .grab')).opacity === '0') row.bad.push(`${where}: индикатор захвата не виден`);
+        for (let i = 0; i < els.length; i++) {
+          const a = els[i];
+          if (a.l < -0.5 || a.t < -0.5 || a.r > innerWidth + 0.5 || a.b > innerHeight + 0.5) row.bad.push(`${where}: ${a.sel} выходит за край экрана`);
+          for (let j = i + 1; j < els.length; j++) if (hit(a, els[j])) row.bad.push(`${where}: ${a.sel} пересекается с ${els[j].sel}`);
+        }
+        out.push(row);
+      }
+      g.ui.setFps(null); g.toMenu();
+      return out;
+    }, [lang]);
+    for (const r of res) { hudBad.push(...r.bad); hudSeen.lines.add(r.lines); hudSeen.scales.add(+r.zoom.toFixed(2)); hudSeen.cases++; if (r.gap != null) hudSeen.gaps.push(r.gap); }
+  }
+}
+await page.setViewportSize({ width: 1280, height: 720 });
+await page.evaluate(() => { const g = window.__gg; g.setLanguage('ru'); g.applySettings({ quality: 'high' }); g.timeScale = 1; });
+check(hudSeen.gaps.length > 0 && Math.min(...hudSeen.gaps) >= 8, `индикатор захвата и подсказка не пересекаются: зазор между ними от ${Math.min(...hudSeen.gaps).toFixed(0)} до ${Math.max(...hudSeen.gaps).toFixed(0)} пикс. (подсказки в ${[...hudSeen.lines].sort().join(', ')} строк; 0 — без подсказки)`);
+check(hudBad.length === 0, `HUD на ${HUD_SIZES.map((x) => x.join('×')).join(', ')} и двух языках (${hudSeen.cases} случаев, масштаб интерфейса ×${[...hudSeen.scales].sort().join(' / ×')}): перекрытий и выходов за экран ${hudBad.length}${hudBad.length ? ' — ' + [...new Set(hudBad)].slice(0, 6).join(' | ') : ''}`);
 
 // --- настройки
 const set = await page.evaluate(async () => {

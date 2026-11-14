@@ -15,6 +15,8 @@ export class UI {
     this.root = root; this.h = handlers; this.save = save; this.settings = settings;
     this.screens = {};
     this.root.innerHTML = '';     // убрать заставку из index.html
+    this.applyScale();
+    window.addEventListener('resize', () => this.applyScale());
     this._build();
     this.hintTimer = 0; this.toastTimer = 0;
   }
@@ -27,6 +29,15 @@ export class UI {
     this.setLoading(this.loadP || 0);
     if (open) this.show(open);
     this.controlsBack = back; this.showHud(hud);
+  }
+
+  /**
+   * Масштаб интерфейса. Все размеры в styles.css заданы для экрана 1920×1080; на экранах крупнее (1440p, 4K)
+   * интерфейс увеличивается целиком, иначе текст на них получается мелким. На 1080p и меньше масштаб 1.
+   */
+  applyScale() {
+    this.scale = Math.max(1, Math.min(window.innerWidth / 1920, window.innerHeight / 1080));
+    this.root.style.zoom = this.scale === 1 ? '' : String(this.scale);
   }
 
   _screen(name, cls = '') { const s = el('div', `screen ${cls}`); s.dataset.name = name; s.hidden = true; this.root.append(s); this.screens[name] = s; return s; }
@@ -153,8 +164,10 @@ export class UI {
       </div>
       <div class="alarm" hidden><span class="atext"></span><b class="acount"></b></div>
       <div class="toast" hidden></div>
-      <div class="grab"><i></i><span></span></div>
-      <div class="hint"></div>
+      <div class="bottom">
+        <div class="grab"><i></i><span></span></div>
+        <div class="hint"></div>
+      </div>
       <div class="clickme" hidden>${t('hud.clickme')}</div>`;
     this.root.append(hud);
     const q = (s) => hud.querySelector(s);

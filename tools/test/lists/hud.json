@@ -1,0 +1,5 @@
+[
+  { "name": "after_1080_en", "level": 3, "t": 7.0, "skin": "skin", "lang": "en", "eval": "g.hand.grabReady = true;" },
+  { "name": "after_1080_ru", "level": 3, "t": 7.0, "skin": "skin", "lang": "ru", "eval": "g.hand.grabReady = true;" },
+  { "name": "after_1080_ru_all", "level": 36, "t": 3.0, "skin": "skin", "lang": "ru", "eval": "g.hand.grabReady = true; g.alarm(99, 'Заслонка упёрлась в руку!'); g.toast('Камера смотрит — не двигайся'); g.hud.meter = { label: 'ВЕС', value: 0.7, mark: 0.5 }; g.ui.setFps(144);" }
+]
