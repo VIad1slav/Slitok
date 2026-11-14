@@ -241,16 +241,68 @@ export function* pickUp(g, item, lift = 0.04) {
 }
 
 /**
+ * Усталость руки на уровне (FatigueTrap) или null, если её нет или она выключена в настройках.
+ */
+const fatigueOf = (g) => g.traps.find((t) => t.def?.type === 'fatigue') || null;
+
+/**
+ * Отдых: если рука устала больше чем на above, вынуть её из витрины в позу подхода, разжать и ждать, пока шкала
+ * не опустится до below. back — точка внутри витрины, куда потом вернуться (по оси отверстия). Возвращает true, если
+ * отдыхали. Без усталости на уровне ничего не делает.
+ */
+export function* restIfTired(g, { above = 0.3, below = 0.05, back = null } = {}) {
+  const f = fatigueOf(g);
+  if (!f || f.value < above) return false;
+  yield* grip(g, false, 0.2);
+  yield* turn(g, { yaw: g.level.approach.yaw || 0 });    // кисть ровно по оси: повёрнутая задевает край отверстия
+  const a = g.level.approach.pos, h = g.hand.pos;
+  yield* moveTo(g, [a[0], h.y, h.z], 0.3, 0.01, 1.5);    // на ось отверстия
+  yield* moveTo(g, [a[0], h.y, a[2]], 0.6, 0.02);        // назад по оси
+  yield* until(() => f.value <= below, 60);
+  if (back) {                                            // вернуться туда, где работали, — тоже по оси
+    yield* moveTo(g, [a[0], back[1], a[2]], 0.4, 0.02);
+    yield* moveTo(g, [a[0], back[1], back[2]], 0.6, 0.012);
+    yield* moveTo(g, back, 0.3, 0.012, 1.5);
+  }
+  return true;
+}
+
+/**
+ * «Подтянуть пальцами»: предмет лежит глубже, чем достаёт ладонь (уровень с пределом досягаемости). Рука идёт по оси
+ * отверстия до упора, пальцы ложатся на ближний край предмета, предмет подтягивается к отверстию и отпускается.
+ *   to — на какой глубине от стенки должен оказаться центр предмета. Сейчас умеет только вход спереди (ось Z).
+ */
+export function* fingerDrag(g, item, { to = 0.2, speed = 0.25 } = {}) {
+  const box = g.level.box, hole = box.holes[item.def.via ?? 0], ax = box.pos[0] + hole.offset[0], wallZ = box.pos[1] + box.size[2] / 2;
+  const yGrab = topOf(item) + PALM_REST, h = g.hand;
+  yield* moveTo(g, [ax, yGrab + 0.012, wallZ + 0.3], 0.6);
+  yield* moveTo(g, [ax, yGrab + 0.012, wallZ + 0.02], 0.6, 0.012);
+  yield* moveTo(g, [ax, yGrab + 0.012, item.position().z], 0.4, 0.012, 4, true);       // до упора в предел досягаемости
+  yield* moveTo(g, [h.pos.x, yGrab - 0.01, h.pos.z], 0.2, 0.006, 0.6);                 // пальцы — на предмет
+  yield* grip(g, true);
+  if (!h.holding) return false;
+  const dz = wallZ - to - item.position().z;
+  const stop = item.position().z + dz;
+  for (let t = 0; t < 4 && h.holding && item.position().z < stop - 0.006; t += DT) {      // подтянуть к отверстию
+    h.target.set(h.pos.x, yGrab + 0.004, Math.min(h.target.z + speed * DT, h.pos.z + 0.05));
+    yield;
+  }
+  yield* grip(g, false, 0.6);
+  return true;
+}
+
+/**
  * «Трещотка»: предмет лежит поперёк входа. Берём, приподнимаем, доворачиваем кистью, кладём —
  * и так, пока он не ляжет длинной стороной вдоль руки. Сейчас умеет только вход спереди (ось Z).
  */
-export function* ratchet(g, item) {
+export function* ratchet(g, item, { between = null } = {}) {
   const b0 = posOf(item), yGrab = topOf(item) + PALM_REST;
   yield* moveTo(g, [b0.x, yGrab + 0.012, b0.z + 0.5], 0.6);
   const yawOf = () => { const e = new THREE.Vector3(1, 0, 0).applyQuaternion(item.quaternion()); return Math.atan2(-e.z, e.x); }; // 0 — вдоль X, ±90° — вдоль Z
   for (let i = 0; i < 12; i++) {
     const a = yawOf(), left = Math.PI / 2 - Math.abs(a);
     if (left < rad(4)) break;
+    if (between) yield* between();   // между перехватами — например, дать руке отдохнуть (уровни с усталостью)
     const b = posOf(item), s = a >= 0 ? 1 : -1, stepA = Math.min(left + rad(1), rad(24));
     yield* turn(g, { yaw: (-s * stepA * 0.5) / rad(1) });
     yield* moveTo(g, [b.x, yGrab + 0.012, b.z], 0.5, 0.012);
@@ -398,6 +450,30 @@ const AUTO = {
   38: { speed: 0.5, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.035, gripSettle: 0.35 },   // карусель с заслонкой
   // Последний рубеж: слиток поперёк узкого отверстия — развернуть перехватами (замирая в пятне камеры) и вынести.
   39: { script: function* (g) { yield* ratchet(g, g.items[0]); yield* standard(g, { speed: 0.5 }); } },
+  // --- Витрина: предел досягаемости и усталость
+  41: { speed: 0.5 },                                    // слиток в пределах ладони: взять и вынести
+  // На кончиках пальцев: подтянуть слиток за ближний край, отдохнуть, взять ладонью и вынести.
+  42: {
+    script: function* (g) {
+      const item = g.items[0];
+      yield* fingerDrag(g, item, { to: 0.2 });
+      yield* restIfTired(g);
+      yield* standard(g, { speed: 0.5 });
+    },
+  },
+  // Предел: подтянуть пальцами, развернуть перехватами (с отдыхом между ними), отдохнуть и вынести.
+  43: {
+    script: function* (g) {
+      const item = g.items[0];
+      yield* fingerDrag(g, item, { to: 0.21 });
+      yield* restIfTired(g);
+      // между перехватами рука отдыхает снаружи и возвращается к слитку по оси отверстия
+      const p = posOf(item), over = [p.x, topOf(item) + PALM_REST + 0.04, p.z];
+      yield* ratchet(g, item, { between: () => restIfTired(g, { back: over }) });
+      yield* restIfTired(g);
+      yield* standard(g, { speed: 0.5 });
+    },
+  },
   // Карусель: висеть над платформой и сжать пальцы, когда слиток смотрит торцом на отверстие.
   8: { speed: 0.5, approachSpeed: 0.6, outside: 0.3, hover: 0.006, lift: 0.035, gripSettle: 0.35 },
 };

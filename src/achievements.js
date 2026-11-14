@@ -16,7 +16,7 @@ import { COSMETICS } from './cosmetics.js';
 const heist = (id) => HEISTS.find((h) => h.id === id);
 const heistDone = (id) => ({ best }) => heist(id).levels.every((l) => best[l]);
 const heistPerfect = (id) => ({ best }) => heist(id).levels.every((l) => best[l]?.stars === STARS_PER_LEVEL);
-const allLevels = () => HEISTS.flatMap((h) => h.levels);
+const allLevels = () => HEISTS.filter((h) => !h.bonus).flatMap((h) => h.levels);   // кампания: 40 уровней пяти ограблений, без дополнительных
 
 export const NO_TOUCH_LEVEL = 32;      // «Джекпот»: бриллиант на карусели, маленькое отверстие, свет гаснет
 export const SPEED_SECONDS = 10;       // «быстрее десяти секунд»

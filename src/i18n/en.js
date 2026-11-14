@@ -146,6 +146,8 @@ export default {
   'heist.casino.tagline': 'Carousel, darkness, slippery loot',
   'heist.boss.name': 'The Boss\'s Safe',
   'heist.boss.tagline': 'Everything at once and a three-stage finale',
+  'heist.vitrine.name': 'The Showcase',
+  'heist.vitrine.tagline': 'One hole, one heavy bar and one tired arm',
 
   // --- loot: name, "fell off the table" fail, "broken" fail (fragile loot only)
   // --- bar metals (src/metals.js): menu name, capitalised name, bar and big bar, the "fell off the table" fail.
@@ -283,6 +285,12 @@ export default {
   'level.40.s1.hint': 'Stage 1. Shutter and camera: go in right after it opens and get out before the camera looks.',
   'level.40.s2.hint': 'Stage 2. Scales in the dark: weight on the scales first, then the bar. The lights go out — memorise the layout.',
   'level.40.s3.hint': 'Stage 3. The grand prize lies crosswise. Turn it end-on toward you and carry it out — slowly, it\'s heavy.',
+  'level.41.name': 'The Hole',
+  'level.41.hint': 'The bar sits deep inside the case. A stretched-out arm gets tired — watch the blue bar and rest outside with your fingers open.',
+  'level.42.name': 'Fingertips',
+  'level.42.hint': 'Your palm cannot reach the bar — only your fingers can. Hook its near end, drag it toward the hole, rest, then take it properly.',
+  'level.43.name': 'The Limit',
+  'level.43.hint': 'The bar lies crosswise at the very limit of your reach. Drag it closer with your fingers, turn it end-on and carry it out. Tired? Rest — a dropped bar is not forgiven.',
 
   // --- Steam achievements: name and description (the key is the Steamworks API name)
   'ach.HEIST_PAWNSHOP.name': 'Small-Time',

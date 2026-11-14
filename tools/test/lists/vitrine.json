@@ -1,0 +1,9 @@
+[
+  { "name": "level_41", "level": 41, "t": 4.6, "skin": "skin", "lang": "ru" },
+  { "name": "level_42_fingertips", "level": 42, "t": 4.9, "skin": "skin", "lang": "ru" },
+  { "name": "level_42_side", "level": 42, "t": 4.9, "side": true, "skin": "skin", "lang": "ru" },
+  { "name": "level_43_start", "level": 43, "t": 4.7, "skin": "skin", "lang": "ru", "metal": "platinum" },
+  { "name": "level_43_turning", "level": 43, "t": 23.5, "skin": "skin", "lang": "ru", "metal": "platinum" },
+  { "name": "level_43_tired", "level": 43, "t": 9.5, "skin": "skin", "lang": "ru", "metal": "gold", "eval": "const f = g.traps.find((t) => t.def.type === 'fatigue'); f.value = 0.85; for (let i = 0; i < 3; i++) g._fixedStep(1 / 120);" },
+  { "name": "heists_menu", "screen": "levels", "lang": "ru", "metal": "gold", "eval": "document.querySelector('.heists').scrollTop = 99999;" }
+]

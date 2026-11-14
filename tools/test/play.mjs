@@ -39,6 +39,7 @@ const BASELINE = {   // 2026-11-12: все уровни начинаются в 
   19: 24.48, 20: 8.88, 21: 12.45, 22: 14.97, 23: 7.6, 24: 28.02, 25: 29.92, 26: 30.71,
   27: 33.27, 28: 6.51, 29: 30.82, 30: 10.86, 31: 35.28, 32: 27.11,
   33: 6.93, 34: 14.95, 35: 12.89, 36: 29.52, 37: 14.97, 38: 18.71, 39: 80.68, 40: 78.22,
+  41: 7.83, 42: 12.97, 43: 65.55,   // 2026-11-14: «Витрина» (новые уровни; числа 1–40 не менялись)
 };
 const TIME_TOLERANCE = 0.10;
 
@@ -110,7 +111,7 @@ check(sv.version === 6 && JSON.stringify(sv.best) === JSON.stringify(OLD_SAVE.be
 check(sv.stored.save?.version === 6 && JSON.stringify(sv.stored.save.best) === JSON.stringify(OLD_SAVE.best) && sv.stored.save.volume === undefined && sv.stored.settings?.volume === 0.4,
   `старое сохранение сразу переписано в новом виде: прогресс отдельно, настройки отдельно (громкость ${sv.stored.settings?.volume})`);
 check(sv.lang === null && sv.shown === 'ru' && sv.title === 'Играть', `язык по умолчанию взят из системы (ru-RU → «${sv.shown}», кнопка «${sv.title}»), в старом сохранении язык не задан`);
-check(sv.stars === 6 && sv.open.join() === 'true,false,false,false,false' && sv.next === 9,
+check(sv.stars === 6 && sv.open.join() === 'true,false,false,false,false,false' && sv.next === 9,
   `замки по звёздам: звёзд ${sv.stars}, открыто ${sv.open.map((o) => (o ? 'да' : 'нет')).join('/')} при порогах ${sv.thresholds.join('/')}, «Играть» ведёт на уровень ${sv.next}`);
 
 const shot = async (name) => {
@@ -616,6 +617,34 @@ check(ML.silver.name === 'Серебряный слиток' && /платино�
 for (const [m, r] of Object.entries(metals.runs)) check(r.won === r.total, `автопилот на металле «${m}»: пройдено ${r.won} из ${r.total} уровней, суммарное время ${r.time} с${r.failed.length ? ' — не пройдены: ' + r.failed.join('; ') : ''}`);
 check(metals.labels.length === 5 && new Set(metals.labels.slice(0, 4)).size === 4 && metals.labels[4] === metals.labels[0] && metals.afterClick.saved === 'platinum' && metals.afterClick.menuBar === 'platinum' && metals.final === 'gold',
   `меню: кнопка перебирает четыре металла по кругу (${metals.labels.slice(0, 4).join(' → ')}), выбор записан в сохранение, слиток за меню сменился`);
+
+// --- «Витрина»: уровни 41–43
+const vit = await page.evaluate(async () => {
+  const g = window.__gg, MT = await import('/src/metals.js'), I = await import('/src/i18n/index.js'), out = { runs: {}, glass: {}, metals: {} };
+  const play = (id) => {      // прогон автопилотом с записью наибольшей усталости
+    g.runAuto(id); g.timeScale = 0;
+    const f = g.traps.find((t) => t.def.type === 'fatigue'); let maxF = 0;
+    while (g.state === 'playing' && g.time < 400) { g._fixedStep(1 / 120); if (f) maxF = Math.max(maxF, f.value); }
+    return { result: g.result, time: +g.time.toFixed(2), touches: g.touches, maxF: +maxF.toFixed(2), fatigue: !!f };
+  };
+  for (const id of [41, 42, 43]) {
+    g.settings.fatigue = true; out.runs[id] = { on: play(id) };
+    out.glass[id] = { glb: g.box.usedGlb, reach: g.hand.reachMax };
+    g.settings.fatigue = false; out.runs[id].off = play(id);
+  }
+  g.settings.fatigue = true;
+  const keep = g.save.metal;
+  for (const m of MT.METALS) { if (m.id === 'gold') continue; g.save.metal = m.id; I.setTextMetal(m.id); out.metals[m.id] = [41, 42, 43].map((id) => play(id)); }
+  g.save.metal = keep; I.setTextMetal(keep); g.timeScale = 1; g.toMenu();
+  return out;
+});
+for (const id of [41, 42, 43]) {
+  const r = vit.runs[id];
+  check(r.on.result === 'won' && r.on.fatigue && r.on.maxF > 0.1 && r.on.maxF < 0.6, `«Витрина», уровень ${id}: ${r.on.result}, ${r.on.time} с, касаний ${r.on.touches}, усталость доходила до ${Math.round(r.on.maxF * 100)} % (дрожь начинается с 60 %)`);
+  check(r.off.result === 'won' && !r.off.fatigue && r.off.time <= r.on.time + 0.01, `«Витрина», уровень ${id}, усталость выключена в настройках: ${r.off.result}, ${r.off.time} с, шкалы нет`);
+}
+check([41, 42, 43].every((id) => vit.glass[id].glb && vit.glass[id].reach > 1.2), `стекло «Витрины» взято из Blender (glass_box.glb), предел досягаемости: ${[41, 42, 43].map((id) => vit.glass[id].reach).join(' / ')} м`);
+for (const [m, list] of Object.entries(vit.metals)) check(list.every((r) => r.result === 'won'), `«Витрина» на металле «${m}»: ${list.map((r, i) => `${41 + i} — ${r.result}, ${r.time} с, усталость до ${Math.round(r.maxF * 100)} %`).join('; ')}`);
 
 // --- предел досягаемости от плеча и усталость руки
 // Проверочный уровень — коробка уровня 8 без карусели, слиток 2 кг, с полями reach и fatigue.
