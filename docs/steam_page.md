@@ -51,7 +51,8 @@ You control a single hand with the mouse. It is heavy, it has momentum, and it d
 - Gloves, a ring and a watch to unlock — purely cosmetic.
 - A side-view camera you can use three times per level, for when depth lies to you.
 - 18 Steam achievements, Steam Cloud saves.
-- English and Russian. Low graphics mode that runs at 60 FPS on integrated Intel graphics.
+- English and Russian. Low graphics mode that runs at 60 FPS on recent integrated Intel UHD graphics.
+- Windows 10/11 (64-bit). A mouse and keyboard are required; gamepads are not supported.
 - Every sound is synthesised, every model and texture is built from code. Nothing in the game was made by a generative AI model.
 
 A full run takes about two to three hours. Three stars on everything takes considerably longer and noticeably more patience.
@@ -85,7 +86,8 @@ Golden Grab — физическая головоломка от первого 
 - Перчатки, кольцо и часы — косметика за звёзды.
 - Вид сбоку — три раза за уровень, когда глазомер подводит.
 - 18 достижений Steam, сохранения в Steam Cloud.
-- Английский и русский языки. Режим низкой графики держит 60 кадров в секунду на встроенной графике Intel.
+- Английский и русский языки. Режим низкой графики держит 60 кадров в секунду на современной встроенной графике Intel UHD.
+- Windows 10/11 (64-bit). Нужны мышь и клавиатура; геймпад не поддерживается.
 - Все звуки синтезированы, все модели и текстуры построены кодом. Ничего в игре не создано генеративными моделями.
 
 Полное прохождение занимает два-три часа. Три звезды на всех уровнях — заметно дольше и требуют заметно больше терпения.
@@ -105,36 +107,100 @@ Golden Grab — физическая головоломка от первого 
 | 9 kinds of loot, each with its own grip | 9 видов добычи, у каждой свой хват |
 | Lasers, cameras, shutters, scales, blackouts | Лазеры, камеры, заслонки, весы, темнота |
 | Stars, unlockable gloves, 18 achievements | Звёзды, перчатки за звёзды, 18 достижений |
-| Runs on integrated graphics | Работает на встроенной графике |
+| Low preset runs at 60 FPS on integrated Intel UHD | «Низкое» качество — 60 кадров/с на встроенной Intel UHD |
+| Mouse and keyboard only | Только мышь и клавиатура |
 
 ---
 
 ## 4. Системные требования
 
-Основаны на замерах `docs/quality_perf.md` (2026-11-13). Игра занимает на диске 325 МБ.
+Сверено с замерами `docs/quality_perf.md` (2026-11-13 и 2026-11-14). В таблице только то, что измерено;
+всё остальное вынесено ниже как «не проверено». Игра занимает на диске 325 МБ.
+
+- **Минимальные** — на чём игра идёт 60 кадров/с на «низком» качестве.
+- **Рекомендуемые** — на чём игра идёт 60 кадров/с на «высоком» качестве.
 
 | | Минимальные | Рекомендуемые |
 | --- | --- | --- |
-| ОС | Windows 10 (64-bit) | Windows 10 / 11 (64-bit) |
-| Процессор | 2 ядра, 2,0 ГГц | 4 ядра, 3,0 ГГц |
-| Память | 4 ГБ | 8 ГБ |
-| Видеокарта | Intel UHD Graphics (12-го поколения) или Iris Xe | Дискретная уровня NVIDIA GeForce GTX 1650 / AMD Radeon RX 570 или новее |
+| ОС | Windows 10 или 11, 64-bit | Windows 10 или 11, 64-bit |
+| Процессор | Intel Core i5 12-го поколения или равный | Intel Core i5 12-го поколения или равный |
+| Память | 8 ГБ | 8 ГБ |
+| Видеокарта | Встроенная Intel UHD Graphics (12–13-го поколения) или Intel Iris Xe | Дискретная видеокарта; проверено на NVIDIA GeForce RTX 4060 |
 | Место на диске | 400 МБ | 400 МБ |
-| Дополнительно | Мышь с колесом. Качество «низкое», 1080p | Качество «высокое», 1080p |
+| Управление | Мышь с колесом и клавиатура обязательны. Геймпад не поддерживается | Мышь с колесом и клавиатура обязательны. Геймпад не поддерживается |
+| Дополнительно | Качество «низкое», 1920×1080 | Качество «высокое», 1920×1080 |
 
-**EN (для полей Steamworks)**
+**EN (текст для полей Steamworks)**
 
-- Minimum: Windows 10 64-bit · Dual-core 2.0 GHz · 4 GB RAM · Intel UHD Graphics (12th gen) or Iris Xe · 400 MB · A mouse with a wheel is required. Low quality preset, 1080p.
-- Recommended: Windows 10/11 64-bit · Quad-core 3.0 GHz · 8 GB RAM · NVIDIA GeForce GTX 1650 / AMD Radeon RX 570 or better · 400 MB · High quality preset, 1080p.
+Minimum:
 
-**Что измерено, а что оценка**
+- OS: Windows 10 or 11 (64-bit)
+- Processor: Intel Core i5 (12th gen) or equivalent
+- Memory: 8 GB RAM
+- Graphics: Integrated Intel UHD Graphics (12th–13th gen) or Intel Iris Xe
+- Storage: 400 MB available space
+- Additional Notes: A mouse with a scroll wheel and a keyboard are required. Gamepads are not supported. Low graphics preset at 1920×1080.
 
-- Измерено: Intel UHD Graphics (ноутбук, процессор 13-го поколения) — «низкое» качество, 1080p: 74–115 кадров/с на отрисовке
-  по всем 40 уровням; «среднее» — 21–25, «высокое» — 11–12. NVIDIA RTX 4060 Laptop — «высокое», 1080p: 140–220 кадров/с.
-- Оценка: рекомендуемая видеокарта (GTX 1650 / RX 570), требования к процессору и памяти — на таких машинах игра не запускалась.
-- Более старая встроенная графика (Intel HD 4000–6000, UHD 620) не проверялась. Если кадры падают ниже 50, игра сама
-  ступенями снижает разрешение рендера до 50 %.
-- Steam Deck не проверялся. Игре обязательна мышь; с тачпадами Deck играть, вероятно, можно, геймпад не поддерживается.
+Recommended:
+
+- OS: Windows 10 or 11 (64-bit)
+- Processor: Intel Core i5 (12th gen) or equivalent
+- Memory: 8 GB RAM
+- Graphics: Dedicated graphics card (tested on NVIDIA GeForce RTX 4060)
+- Storage: 400 MB available space
+- Additional Notes: A mouse with a scroll wheel and a keyboard are required. Gamepads are not supported. High graphics preset at 1920×1080.
+
+**RU (текст для полей Steamworks)**
+
+Минимальные:
+
+- ОС: Windows 10 или 11 (64-bit)
+- Процессор: Intel Core i5 12-го поколения или аналогичный
+- Оперативная память: 8 ГБ
+- Видеокарта: встроенная Intel UHD Graphics (12–13-го поколения) или Intel Iris Xe
+- Место на диске: 400 МБ
+- Дополнительно: обязательны мышь с колесом и клавиатура. Геймпад не поддерживается. Качество графики «низкое», 1920×1080.
+
+Рекомендуемые:
+
+- ОС: Windows 10 или 11 (64-bit)
+- Процессор: Intel Core i5 12-го поколения или аналогичный
+- Оперативная память: 8 ГБ
+- Видеокарта: дискретная видеокарта (проверено на NVIDIA GeForce RTX 4060)
+- Место на диске: 400 МБ
+- Дополнительно: обязательны мышь с колесом и клавиатура. Геймпад не поддерживается. Качество графики «высокое», 1920×1080.
+
+**На чём это основано**
+
+| Что | Где измерено | Результат |
+| --- | --- | --- |
+| «Низкое», 1920×1080 | Intel UHD Graphics, ноутбук с Core 13-го поколения | 70–110 кадров/с на отрисовке по всем 40 уровням (худший кадр 14 мс) |
+| «Среднее», 1920×1080 | та же Intel UHD | 18–25 кадров/с — **не играбельно**, поэтому встроенная графика заявлена только для «низкого» |
+| «Высокое», 1920×1080 | та же Intel UHD | 11–12 кадров/с |
+| «Высокое», 1920×1080 | NVIDIA GeForce RTX 4060 Laptop | 140–220 кадров/с |
+| «Низкое», 1920×1080 | NVIDIA GeForce RTX 4060 Laptop | 450 и больше |
+
+**Не проверено — и поэтому не обещается**
+
+- **Дискретные видеокарты слабее RTX 4060.** Какой самой слабой карты хватает для «высокого» при 60 кадрах/с, неизвестно:
+  между Intel UHD (12 кадров/с) и RTX 4060 (140+) замеров нет. Формулировка «дискретная видеокарта; проверено на RTX 4060»
+  честная, но широкая. Когда появится замер на карте уровня GTX 1650 / RX 570, её стоит вписать вместо общей фразы.
+- **Intel Iris Xe** сама не измерялась. Она быстрее Intel UHD того же поколения (больше исполнительных блоков), поэтому
+  указана рядом с ней; если хочется строгости — оставить в поле только Intel UHD.
+- **Встроенная графика старше 12-го поколения** (Intel HD, UHD 620) и встроенная графика AMD не проверялись.
+- **Процессор и память** отдельно не замерялись: указан класс машины, на которой шли замеры. Самой игре хватает
+  одного ядра и около 600 МБ памяти, но обещать «2 ядра и 4 ГБ» без проверки на такой машине нельзя.
+- **Windows 11** — замеры шли на ней; на Windows 10 игра не запускалась, она указана по поддержке Electron 45.
+- Если кадры падают ниже 50 в секунду, игра сама ступенями снижает разрешение рендера (до 50 %).
+- При первом запуске качество подбирается автоматически: на Intel UHD игра сама выбирает «низкое».
+
+**Steam Deck и геймпад**
+
+- Игра **не заявляется** как совместимая со Steam Deck: на нём она не запускалась, геймпад и сенсорные панели
+  не поддерживаются, управление рассчитано на мышь с колесом и клавиатуру.
+- В описании, особенностях и тегах Steam Deck не упоминается. В Steamworks поле «Controller support» оставить пустым
+  («No controller support»), галочки про Steam Deck не ставить.
+- Сборка для Linux собирается командой `npm run build:linux`, но не запускалась и к выпуску не готовится.
 
 ---
 
@@ -164,6 +230,7 @@ Golden Grab — физическая головоломка от первого 
 18. Atmospheric
 
 Жанр в Steamworks: Casual, Indie, Simulation. Категории: Single-player, Steam Achievements, Steam Cloud.
+Теги и категории про геймпад и Steam Deck (Controller, Steam Deck Verified / Playable) не ставить.
 
 ---
 

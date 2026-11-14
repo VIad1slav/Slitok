@@ -34,7 +34,7 @@ npm run desktop
 npm run build:win
 ```
 
-Собирает папку `dist/win-unpacked` (Windows x64, 325 МБ, внутри `Golden Grab.exe`) — её и загружают в Steam. `npm run build:linux` — сборка для Linux / Steam Deck (собирается, но не проверялась).
+Собирает папку `dist/win-unpacked` (Windows x64, 325 МБ, внутри `Golden Grab.exe`) — её и загружают в Steam. `npm run build:linux` — сборка для Linux: собирается, но не запускалась и к выпуску не готовится. Игра выпускается под Windows 10/11 (64-bit), нужны мышь и клавиатура, геймпад и Steam Deck не поддерживаются.
 
 - Полный экран по умолчанию; Alt+Enter или F11 — в окно и обратно.
 - Сохранение и настройки: `%APPDATA%\Golden Grab\saves\save.json` и `settings.json`. Повреждённый файл не роняет игру: берётся копия `.bak`.
