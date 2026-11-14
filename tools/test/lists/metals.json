@@ -1,0 +1,74 @@
+[
+  {
+    "name": "bar_gold",
+    "level": 1,
+    "t": 5.4,
+    "side": true,
+    "skin": "skin",
+    "metal": "gold",
+    "hud": false,
+    "eval": "const h = g.hand.pos; g.stage.sideLook.set(h.x, h.y - 0.02, h.z - 0.02); g.stage.sidePos.set(h.x - 0.22, h.y + 0.1, h.z + 0.3);"
+  },
+  {
+    "name": "table_gold",
+    "level": 19,
+    "start": true,
+    "skin": "skin",
+    "metal": "gold",
+    "lang": "ru"
+  },
+  {
+    "name": "bar_platinum",
+    "level": 1,
+    "t": 5.4,
+    "side": true,
+    "skin": "skin",
+    "metal": "platinum",
+    "hud": false,
+    "eval": "const h = g.hand.pos; g.stage.sideLook.set(h.x, h.y - 0.02, h.z - 0.02); g.stage.sidePos.set(h.x - 0.22, h.y + 0.1, h.z + 0.3);"
+  },
+  {
+    "name": "table_platinum",
+    "level": 19,
+    "start": true,
+    "skin": "skin",
+    "metal": "platinum",
+    "lang": "ru"
+  },
+  {
+    "name": "bar_silver",
+    "level": 1,
+    "t": 5.4,
+    "side": true,
+    "skin": "skin",
+    "metal": "silver",
+    "hud": false,
+    "eval": "const h = g.hand.pos; g.stage.sideLook.set(h.x, h.y - 0.02, h.z - 0.02); g.stage.sidePos.set(h.x - 0.22, h.y + 0.1, h.z + 0.3);"
+  },
+  {
+    "name": "table_silver",
+    "level": 19,
+    "start": true,
+    "skin": "skin",
+    "metal": "silver",
+    "lang": "ru"
+  },
+  {
+    "name": "bar_bronze",
+    "level": 1,
+    "t": 5.4,
+    "side": true,
+    "skin": "skin",
+    "metal": "bronze",
+    "hud": false,
+    "eval": "const h = g.hand.pos; g.stage.sideLook.set(h.x, h.y - 0.02, h.z - 0.02); g.stage.sidePos.set(h.x - 0.22, h.y + 0.1, h.z + 0.3);"
+  },
+  {
+    "name": "table_bronze",
+    "level": 19,
+    "start": true,
+    "skin": "skin",
+    "metal": "bronze",
+    "lang": "ru"
+  }
+]

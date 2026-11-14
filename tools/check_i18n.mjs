@@ -88,7 +88,8 @@ console.log(`  инфо проверено файлов кода: ${files.length
 // --- 2. словари
 const en = (await import('../src/i18n/en.js')).default, ru = (await import('../src/i18n/ru.js')).default;
 const kind = (v) => (Array.isArray(v) ? 'список' : typeof v);
-const params = (v) => [...new Set(String(Array.isArray(v) ? v.join(' ') : v).match(/\{\w+\}/g) || [])].sort().join(',');
+// {metal} и {Metal} доступны в любом тексте (src/i18n/index.js), поэтому язык вправе обойтись без них
+const params = (v) => [...new Set(String(Array.isArray(v) ? v.join(' ') : v).match(/\{\w+\}/g) || [])].filter((x) => x !== '{metal}' && x !== '{Metal}').sort().join(',');
 for (const k of Object.keys(en)) if (!(k in ru)) bad(`ключ «${k}» есть в en.js, но нет в ru.js`);
 for (const k of Object.keys(ru)) if (!(k in en)) bad(`ключ «${k}» есть в ru.js, но нет в en.js`);
 for (const k of Object.keys(en)) {
@@ -111,7 +112,13 @@ for (const l of LEVELS) {
   if (l.stages) for (let s = 1; s <= stageCount(l); s++) need.push(`level.${l.id}.s${s}.hint`); else need.push(`level.${l.id}.hint`);
 }
 for (const h of HEISTS) need.push(`heist.${h.id}.name`, `heist.${h.id}.tagline`);
-for (const [id, type] of Object.entries(LOOT)) { need.push(`loot.${id}.name`, `loot.${id}.fall`); if (type.fragile) need.push(`loot.${id}.broken`); }
+const { METALS } = await import('../src/metals.js');
+for (const [id, type] of Object.entries(LOOT)) {
+  if (type.metal) for (const m of METALS) need.push(`metal.${m.id}.${id}`, `metal.${m.id}.${id}Fall`);   // слиток: название зависит от металла
+  else need.push(`loot.${id}.name`, `loot.${id}.fall`);
+  if (type.fragile) need.push(`loot.${id}.broken`);
+}
+for (const m of METALS) need.push(`metal.${m.id}.name`, `metal.${m.id}.cap`);
 for (const c of COSMETICS) need.push(`cosmetic.${c.id}`);
 const { ACHIEVEMENTS } = await import('../src/achievements.js');
 for (const a of ACHIEVEMENTS) need.push(`ach.${a.id}.name`, `ach.${a.id}.desc`);

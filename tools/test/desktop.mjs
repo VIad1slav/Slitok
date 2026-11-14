@@ -130,7 +130,7 @@ if (!EXE) {
   const saves = join(dir, 'saves'), saveFile = join(saves, 'save.json'), settingsFile = join(saves, 'settings.json');
   await page.evaluate(() => window.__gg.setLanguage('en')); await sleep(600);
   const onDisk = { save: readJson(saveFile), settings: readJson(settingsFile), files: existsSync(saves) ? readdirSync(saves) : [], dir: await page.evaluate(() => window.desktop.storeDir()) };
-  check(onDisk.save?.version === 5 && onDisk.save.best?.[1]?.stars >= 1 && onDisk.settings?.lang === 'en' && !onDisk.files.some((f) => f.endsWith('.tmp')),
+  check(onDisk.save?.version === 6 && onDisk.save.best?.[1]?.stars >= 1 && onDisk.settings?.lang === 'en' && !onDisk.files.some((f) => f.endsWith('.tmp')),
     `сохранение записано в файл: ${onDisk.dir}\\save.json (рекорд уровня 1: ${onDisk.save?.best?.[1]?.time} с), настройки — settings.json (язык ${onDisk.settings?.lang}); в папке: ${onDisk.files.join(', ')}`);
   await page.evaluate(() => window.__gg.setLanguage('ru')); await sleep(600);
 

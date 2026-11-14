@@ -434,6 +434,8 @@ class ShutterTrap {
 class ScaleTrap {
   constructor(def, env) {
     this.def = { min: 1.6, grace: 0.4, alarmSeconds: 3, ...def };
+    // порог веса задан для золотого слитка; у другого металла слиток легче или тяжелее — порог меняется вместе с ним
+    this.def.min *= env.item?.metal?.density ?? 1;
     this.env = env; this.low = 0; this.tripped = false; this.weight = 0;
     const p = env.level.pedestal, [w, h, d] = p.size;
     this.cx = env.level.box.pos[0] + p.pos[0]; this.cz = env.level.box.pos[1] + p.pos[1];
@@ -448,7 +450,7 @@ class ScaleTrap {
     for (const it of ctx.items) {
       if (it.banked || it.held) continue;
       const p = it.body.position;
-      if (Math.abs(p.x - this.cx) < this.hw && Math.abs(p.z - this.cz) < this.hd && p.y > this.top && p.y < this.top + 0.2 && it.speed() < 1) weight += it.def.mass;
+      if (Math.abs(p.x - this.cx) < this.hw && Math.abs(p.z - this.cz) < this.hd && p.y > this.top && p.y < this.top + 0.2 && it.speed() < 1) weight += it.mass;
     }
     this.weight = weight;
     const d = this.def;

@@ -16,7 +16,8 @@
 //   8. HUD: на пяти разрешениях и двух языках индикатор захвата не пересекается с подсказкой, элементы HUD
 //      не наезжают друг на друга и не выходят за край экрана;
 //   9. настройки: качество графики, предел кадров, инверсия, чувствительность, громкость — применяются и сохраняются;
-//   10. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
+//   10. металлы слитка: золото не изменилось, на платине, серебре и бронзе автопилот проходит все уровни;
+//   11. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
@@ -102,9 +103,9 @@ const sv = await page.evaluate(async () => {
     next: H.continueLevel(g.save).id,
   };
 });
-check(sv.version === 5 && JSON.stringify(sv.best) === JSON.stringify(OLD_SAVE.best) && sv.skin === 'glove' && sv.handSkin === 'glove' && sv.volume === 0.4,
+check(sv.version === 6 && JSON.stringify(sv.best) === JSON.stringify(OLD_SAVE.best) && sv.skin === 'glove' && sv.handSkin === 'glove' && sv.volume === 0.4,
   `старое сохранение прочитано без потерь (версия ${sv.version}, рекордов ${Object.keys(sv.best).length}, рука «${sv.skin}», громкость ${sv.volume})`);
-check(sv.stored.save?.version === 5 && JSON.stringify(sv.stored.save.best) === JSON.stringify(OLD_SAVE.best) && sv.stored.save.volume === undefined && sv.stored.settings?.volume === 0.4,
+check(sv.stored.save?.version === 6 && JSON.stringify(sv.stored.save.best) === JSON.stringify(OLD_SAVE.best) && sv.stored.save.volume === undefined && sv.stored.settings?.volume === 0.4,
   `старое сохранение сразу переписано в новом виде: прогресс отдельно, настройки отдельно (громкость ${sv.stored.settings?.volume})`);
 check(sv.lang === null && sv.shown === 'ru' && sv.title === 'Играть', `язык по умолчанию взят из системы (ru-RU → «${sv.shown}», кнопка «${sv.title}»), в старом сохранении язык не задан`);
 check(sv.stars === 6 && sv.open.join() === 'true,false,false,false,false' && sv.next === 9,
@@ -128,10 +129,15 @@ const freeze = (id, t, side = false) => page.evaluate(([lvl, sec, sideView]) => 
 // --- испорченное сохранение не роняет игру: мусор отбрасывается, годное остаётся
 const junk = await page.evaluate(async () => {
   const S = await import('/src/save.js');
+  // сохранение версии 5 (до металлов): всё на месте, металл — золото; неизвестный металл тоже становится золотом
+  const v5 = S.migrateSave({ version: 5, best: { 1: { stars: 3, time: 6.5, touches: 0 }, 40: { stars: 1, time: 300, touches: 9 } }, skin: 'glove_red', accessory: 'ring', achievements: { SPEEDRUN: true }, stats: { glassBroken: 4 } });
+  const v6 = S.migrateSave({ version: 6, best: {}, metal: 'silver' }), odd = S.migrateSave({ version: 6, best: {}, metal: 'unobtainium' });
   const a = S.migrateSave({ best: { 1: { stars: 3, time: 5 }, 2: 'мусор', 3: { stars: 'x' }, 7: { stars: 9, time: 20, touches: 1 } }, skin: 'ring', accessory: 'нет такого' });
   const b = S.migrateSave('строка вместо объекта'), c = S.migrateSettings({ volume: 'громко', lang: 'xx', noFlicker: 1 }), d = S.migrateSettings(null, null);
-  return { a, b, c, d };
+  return { a, b, c, d, v5, v6: v6.metal, odd: odd.metal };
 });
+check(junk.v5.version === 6 && junk.v5.metal === 'gold' && junk.v5.best[40]?.time === 300 && junk.v5.best[1]?.stars === 3 && junk.v5.skin === 'glove_red' && junk.v5.accessory === 'ring' && junk.v5.achievements.SPEEDRUN === true && junk.v5.stats.glassBroken === 4 && junk.v6 === 'silver' && junk.odd === 'gold',
+  `сохранение версии 5 читается без потерь: рекорды (${Object.keys(junk.v5.best).length}), рука «${junk.v5.skin}», украшение «${junk.v5.accessory}», достижения и счётчики на месте, металл — ${junk.v5.metal}; неизвестный металл → ${junk.odd}`);
 check(Object.keys(junk.a.best).join() === '1,7' && junk.a.best[7].stars === 3 && junk.a.skin === 'skin' && junk.a.accessory === null && Object.keys(junk.b.best).length === 0 && junk.c.volume === 0.7 && junk.c.lang === null && junk.c.noFlicker === false && junk.d.volume === 0.7,
   `испорченные поля сохранения отбрасываются, годные рекорды остаются (${Object.keys(junk.a.best).join(', ')}), настройки с мусором → значения по умолчанию`);
 
@@ -566,6 +572,48 @@ check(ach.glass9.length === 0 && ach.glass10.join() === 'GLASS_BREAKER' && ach.h
 check(ach.total === ach.known && ach.again.length === 0 && ach.calls === ach.unique && ach.calls === ach.known, `все ${ach.known} достижений получаемы, каждое выдаётся один раз (выдано ${ach.calls})`);
 check(['ALL_LEVELS', 'BREAK_VASE', 'HEIST_BOSS', 'HEIST_PAWNSHOP', 'MONKEY_TRAP', 'SPEEDRUN'].every((id) => ach.game.includes(id)) && ach.stored === ach.game.length,
   `игра сама выдала за этот прогон ${ach.game.length} достижений (${ach.game.join(', ')}) — всё записано в сохранение`);
+
+// --- металлы слитка
+// Золото проверено выше: время автопилота на всех уровнях сверено с эталоном. Здесь — остальные три металла
+// (все 40 уровней на каждом) и то, что металл меняет массу, хват, порог весов, вид и названия.
+const metals = await page.evaluate(async () => {
+  const g = window.__gg, H = await import('/src/heists.js'), MT = await import('/src/metals.js'), I = await import('/src/i18n/index.js'), { LOOT } = await import('/src/loot-types.js'), out = { runs: {}, look: {} };
+  const keep = g.save.metal;
+  for (const m of MT.METALS) {
+    g.save.metal = m.id; I.setTextMetal(m.id);
+    // вид, масса и хват: уровень 1 (слиток 1 кг) и уровень 33 (большой слиток 6 кг)
+    g.startLevelById(1); const bar = g.items[0];
+    g.startLevelById(33); const big = g.items[0];
+    g.startLevelById(22); const scale = g.traps.find((t) => t.def.type === 'scale');
+    out.look[m.id] = { mass: +bar.body.mass.toFixed(3), bigMass: +big.body.mass.toFixed(2), slip: +(g.hand.levelSlipSpeed * bar.slipScale).toFixed(3), bigSlip: +(Math.min(g.hand.levelSlipSpeed, big.type.slipSpeed) * big.slipScale).toFixed(3),
+      scaleMin: +scale.def.min.toFixed(3), barOnScale: +g.items[0].mass.toFixed(3), color: '#' + bar.material.color.getHexString(), map: !!bar.material.map, normal: !!bar.material.normalMap,
+      name: I.lootName(LOOT.bar, bar.metal), fall: I.lootFall(LOOT.bigbar, big.metal), other: g.items[1].mass };
+    if (m.id === 'gold') continue;       // золото уже прошло всю кампанию выше, с эталоном времени
+    const res = H.campaignOrder().map((e) => g.autoTest(e.level.id, 400));
+    out.runs[m.id] = { won: res.filter((r) => r.result === 'won').length, total: res.length, failed: res.filter((r) => r.result !== 'won').map((r) => `${r.level}: ${r.result}`), time: +res.reduce((a, r) => a + r.time, 0).toFixed(0) };
+  }
+  // меню: кнопка «Слиток» перебирает металлы, выбор записывается; текст с {Metal} меняется
+  g.save.metal = keep; I.setTextMetal(keep); g.toMenu();
+  const btn = () => [...document.querySelectorAll('.screen[data-name=menu] .btn')].find((b) => /^(Слиток|Bar):/.test(b.textContent));
+  const labels = [btn().textContent];
+  for (let i = 0; i < 4; i++) { btn().click(); labels.push(btn().textContent); if (i === 0) out.afterClick = { saved: JSON.parse(localStorage.getItem('goldenGrab.v1')).metal, line: I.t('fail.lines') === 'fail.lines' ? I.tList('fail.lines').map((x) => x).pop() : '', menuBar: g.items[0].metal?.id, pick: I.tPick('fail.lines') }; }
+  out.labels = labels; out.final = g.save.metal;
+  return out;
+});
+const ML = metals.look;
+check(ML.gold.mass === 1 && ML.gold.bigMass === 6 && ML.gold.slip === 1.85 && ML.gold.bigSlip === 0.9 && ML.gold.scaleMin === 1.6 && ML.gold.map === true,
+  `золото — как раньше: слиток ${ML.gold.mass} кг, большой ${ML.gold.bigMass} кг, выскальзывает на ${ML.gold.slip} и ${ML.gold.bigSlip} м/с, порог весов ${ML.gold.scaleMin} кг, запечённый цвет на месте`);
+check(ML.platinum.mass === 1.11 && ML.silver.mass === 0.54 && ML.bronze.mass === 0.46 && ML.platinum.bigSlip < ML.gold.bigSlip && ML.silver.slip > ML.gold.slip && ML.bronze.slip > ML.silver.slip && ['platinum', 'silver', 'bronze'].every((m) => ML[m].other === 2),
+  `масса и хват по металлам: платина ${ML.platinum.mass} кг (большой ${ML.platinum.bigMass} кг, порог ${ML.platinum.bigSlip} м/с), серебро ${ML.silver.mass} кг (${ML.silver.slip} м/с), бронза ${ML.bronze.mass} кг (${ML.bronze.slip} м/с); груз для весов не меняется (${ML.silver.other} кг)`);
+check(['platinum', 'silver', 'bronze'].every((m) => ML[m].barOnScale >= ML[m].scaleMin && ML[m].scaleMin <= 2),
+  `весы: порог веса идёт за металлом (платина ${ML.platinum.scaleMin} кг, серебро ${ML.silver.scaleMin} кг, бронза ${ML.bronze.scaleMin} кг) — слиток на весах тревогу не поднимает, груз 2 кг его заменяет`);
+check(new Set(Object.values(ML).map((x) => x.color)).size === 4 && ['platinum', 'silver', 'bronze'].every((m) => !ML[m].map && ML[m].normal),
+  `вид: у металлов разные цвета (${Object.entries(ML).map(([k, v]) => `${k} ${v.color}`).join(', ')}), карта нормалей общая с золотом, запечённого золотого цвета у них нет`);
+check(ML.silver.name === 'Серебряный слиток' && /платиновый/.test(ML.platinum.fall) && ML.gold.name === 'Золотой слиток',
+  `названия зависят от металла: «${ML.gold.name}», «${ML.silver.name}», «${ML.platinum.fall}»`);
+for (const [m, r] of Object.entries(metals.runs)) check(r.won === r.total, `автопилот на металле «${m}»: пройдено ${r.won} из ${r.total} уровней, суммарное время ${r.time} с${r.failed.length ? ' — не пройдены: ' + r.failed.join('; ') : ''}`);
+check(metals.labels.length === 5 && new Set(metals.labels.slice(0, 4)).size === 4 && metals.labels[4] === metals.labels[0] && metals.afterClick.saved === 'platinum' && metals.afterClick.menuBar === 'platinum' && metals.final === 'gold',
+  `меню: кнопка перебирает четыре металла по кругу (${metals.labels.slice(0, 4).join(' → ')}), выбор записан в сохранение, слиток за меню сменился`);
 
 // --- общая модель добычи
 const loot = await page.evaluate(async () => {

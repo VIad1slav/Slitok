@@ -515,7 +515,7 @@ export class Hand {
 
   _attach(item) {
     this.holding = true; this.item = item; this.slipTimer = 0;
-    this.slipSpeed = Math.min(this.levelSlipSpeed, item.type.slipSpeed ?? Infinity);
+    this.slipSpeed = Math.min(this.levelSlipSpeed, item.type.slipSpeed ?? Infinity) * (item.slipScale ?? 1);   // slipScale — от металла слитка (у золота 1)
     const qi = _q.copy(this.quat).invert();
     this.barRelQuat.copy(qi).multiply(item.quaternion());
     this.barRelPos.copy(item.position()).sub(this.wrist).applyQuaternion(qi);

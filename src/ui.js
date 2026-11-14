@@ -3,7 +3,8 @@ import { storeSave, QUALITY_LEVELS, FPS_LIMITS } from './save.js';
 import { HEISTS, heistStars, isHeistUnlocked, totalStars, continueLevel, levelById } from './heists.js';
 import { cosmeticById, unlockedCosmetics } from './cosmetics.js';
 import { platform } from './platform.js';
-import { t, tList, tPick, LANGS, getLang, langName, levelName, levelHint, heistName, heistTagline, cosmeticName } from './i18n/index.js';
+import { t, tList, tPick, LANGS, getLang, langName, levelName, levelHint, heistName, heistTagline, cosmeticName, metalName } from './i18n/index.js';
+import { metalById, unlockedMetals } from './metals.js';
 
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const stars = (n, max = 3) => '<span class="stars">' + Array.from({ length: max }, (_, i) => `<i class="${i < n ? 'on' : ''}">★</i>`).join('') + '</span>';
@@ -68,7 +69,11 @@ export class UI {
       this.save.accessory = list[(i + 1) % list.length];
       this._syncOptions(); this.h.accessory(this.save.accessory); storeSave(this.save);
     }, 'ghost');
-    opts.append(this.skinBtn, this.accBtn);
+    this.metalBtn = this._button('', () => {  // металл слитка: открытые варианты по кругу
+      const list = unlockedMetals(totalStars(this.save)), i = list.findIndex((m) => m.id === this.save.metal);
+      this.h.metal(list[(i + 1) % list.length].id);
+    }, 'ghost');
+    opts.append(this.skinBtn, this.accBtn, this.metalBtn);
     card.append(opts);
     menu.append(card);
 
@@ -182,6 +187,8 @@ export class UI {
   _syncOptions() {
     this.skinBtn.innerHTML = `${t('opt.hand')}: <b>${cosmeticName(cosmeticById(this.save.skin))}</b>`;
     this.accBtn.innerHTML = `${t('opt.accessory')}: <b>${this.save.accessory ? cosmeticName(cosmeticById(this.save.accessory)) : t('opt.accessoryNone')}</b>`;
+    this.metalBtn.innerHTML = `${t('opt.metal')}: <b>${metalName(metalById(this.save.metal))}</b>`;
+    this.metalBtn.hidden = unlockedMetals(totalStars(this.save)).length < 2;                       // выбирать не из чего — кнопки нет
     this.accBtn.hidden = unlockedCosmetics('accessory', totalStars(this.save)).length === 0;   // пока ничего не открыто, кнопки нет
     for (const fn of this._sync) fn();
   }

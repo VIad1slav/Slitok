@@ -369,6 +369,12 @@ export async function createMaterials() {
   // Золото: металл, отражения берёт из PMREM-окружения.
   M.gold = pbr(gold, { color: 0xffc94a, envMapIntensity: 1.5, clearcoat: 0.15, clearcoatRoughness: 0.3 }, true);
   if (!gold.fallback) M.gold.color.set(0xffffff); // запечённое albedo уже золотое
+  // Другие металлы слитка (src/metals.js): те же карты нормалей и ORM, что у золота (клеймо, царапины, фаски),
+  // но без запечённого золотого цвета — цвет задан числом. Новой запечки в Blender для них не нужно.
+  const plainBar = { ...gold, map: null };
+  M.platinum = pbr(plainBar, { color: 0xe9e7e2, roughness: 0.9, metalness: 1, envMapIntensity: 1.7, clearcoat: 0.2, clearcoatRoughness: 0.25 }, true);   // светлая, чуть тёплая
+  M.silver = pbr(plainBar, { color: 0xb9c6d4, roughness: 0.7, metalness: 1, envMapIntensity: 1.9, clearcoat: 0.1, clearcoatRoughness: 0.2 }, true);      // холодное, самое зеркальное
+  M.bronze = pbr(plainBar, { color: 0xa35a34, roughness: 1.25, metalness: 0.85, envMapIntensity: 1.2 }, true);                                            // красновато-коричневая, матовее
   // Стекло: пропускание + разводы в шероховатости.
   M.glass = new THREE.MeshPhysicalMaterial({
     color: 0xffffff, metalness: 0, roughness: 1, roughnessMap: glassMaps.smudges,
@@ -431,6 +437,6 @@ export async function createMaterials() {
   for (const k of ['map', 'normalMap', 'ormMap']) felt[k].repeat.set(2, 2);
 
   // Блестящие материалы: на «низком» качестве отражения окружения остаются только у них (см. Stage._applyEnv).
-  for (const k of ['gold', 'crown', 'brass', 'metal', 'steel', 'steelTable', 'diamond', 'glass', 'glassEdge', 'vase', 'chips', 'dice']) if (M[k]) M[k].userData.reflective = true;
+  for (const k of ['gold', 'platinum', 'silver', 'bronze', 'crown', 'brass', 'metal', 'steel', 'steelTable', 'diamond', 'glass', 'glassEdge', 'vase', 'chips', 'dice']) if (M[k]) M[k].userData.reflective = true;
   return { M, sets, glassMaps, fallbacks };
 }

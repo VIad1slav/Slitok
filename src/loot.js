@@ -67,13 +67,19 @@ function fallbackMesh(type, material) {
 export class Loot {
   /**
    * @param def    элемент из levelLoot(level): { type, pos, yaw, mass, friction, role }
+   * @param metal  выбранный игроком металл слитка (запись из src/metals.js) или null
    * @param models загруженные GLB (имя → сцена или null)
    */
-  constructor({ scene, world, M, models, level, def, index, staticMaterial }) {
+  constructor({ scene, world, M, models, level, def, index, staticMaterial, metal = null }) {
     this.scene = scene; this.world = world; this.def = def; this.index = index;
     this.typeName = def.type;
     const type = this.type = LOOT[def.type];
     this.role = def.role;
+    // Металл слитка (запись из src/metals.js) — только у типов с пометкой metal. У золота density и slip равны 1,
+    // поэтому с ним масса и хват в точности те же, что и без металлов.
+    this.metal = type.metal ? metal : null;
+    this.mass = def.mass * (this.metal?.density ?? 1);
+    this.slipScale = this.metal?.slip ?? 1;
     this.maxSpeed = type.maxSpeed ?? PHYS.barMaxSpeed;
     this.held = false; this.banked = false; this.glowOwner = null; this.zoneTime = 0;
     this.cracks = 0; this.broken = false; this.impact = 0; this._pv = new CANNON.Vec3(); this._hitTime = -9;
@@ -81,7 +87,7 @@ export class Loot {
     // --- физическое тело
     const halfY = type.bounds[1] / 2;
     this.body = new CANNON.Body({
-      mass: def.mass, material: materialFor(world, staticMaterial, def.friction ?? PHYS.staticFriction), linearDamping: 0.03, angularDamping: 0.25,
+      mass: this.mass, material: materialFor(world, staticMaterial, def.friction ?? PHYS.staticFriction), linearDamping: 0.03, angularDamping: 0.25,
       collisionFilterGroup: GROUP.BAR, collisionFilterMask: GROUP.STATIC | GROUP.HAND | GROUP.BAR,
     });
     // --- примитивы: форма для cannon-es и коллайдеры для решателя руки (мировые c, q обновляет colliders())
@@ -113,7 +119,7 @@ export class Loot {
     this.heldSpheres = type.held.map(([x, y, z, r]) => ({ p: new THREE.Vector3(x, y, z), r }));
 
     // --- модель (у каждого предмета своя копия материала: подсветка не должна зажигать соседей)
-    this.material = (M[type.material] || M.gold).clone();
+    this.material = (M[this.metal?.material] || M[type.material] || M.gold).clone();
     const glb = models?.[type.model];
     this.usedGlb = !!glb;
     this.mesh = glb ? glb.clone(true) : fallbackMesh(type, this.material);

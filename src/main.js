@@ -12,7 +12,8 @@ import { Loot } from './loot.js';
 import { levelLoot, lootNeeded } from './loot-types.js';
 import { nextAfter, placeOf, levelById, totalStars } from './heists.js';
 import { cosmeticById, unlockedCosmetics } from './cosmetics.js';
-import { t, setLang, lootName, lootFall, lootBroken } from './i18n/index.js';
+import { t, setLang, setTextMetal, lootName, lootFall, lootBroken } from './i18n/index.js';
+import { metalById } from './metals.js';
 import { spawnShards } from './shards.js';
 import { Hand } from './hand.js';
 import { Pedestal, createTraps } from './traps.js';
@@ -41,6 +42,7 @@ class Game {
     this.save = data.save; this.settings = data.settings;
     if (data.notes.save || data.notes.settings) console.info('[Golden Grab] player files were damaged:', data.notes);   // 'restored' — взята запасная копия, 'reset' — начато заново
     setLang(this.settings.lang);        // null — язык системы
+    setTextMetal(this.save.metal);      // тексты упоминают выбранный металл слитка
     // Достижения: запоминаются в сохранении и отправляются в Steam, если он есть. При запуске всё полученное
     // отправляется заново — на случай, если раньше играли без Steam.
     this.achievements = new Achievements(this.save, { onUnlock: (id) => platform.unlockAchievements([id]), onChange: () => storeSave(this.save) });
@@ -60,6 +62,7 @@ class Game {
       skin: (id) => this.hand.setSkin(cosmeticById(id)),
       accessory: (id) => this.hand.setAccessory(id ? cosmeticById(id) : null, this.models),
       language: (lang) => this.setLanguage(lang),
+      metal: (id) => this.setMetal(id),
       quit: () => platform.quit(),
       settings: (change) => this.applySettings(change),
     }, this.save, this.settings);
@@ -130,7 +133,7 @@ class Game {
     const scene = this.stage.scene, world = this.world, M = this.M, staticMaterial = this.staticMaterial;
     this.box = new GlassBox({ scene, world, level, M, glbRoot: this.models.glass_box, staticMaterial });
     if (level.pedestal) this.pedestal = new Pedestal({ scene, world, M, level, glbScene: this.models.pedestal, staticMaterial });
-    this.items = levelLoot(level).map((def, index) => new Loot({ scene, world, M, models: this.models, level, def, index, staticMaterial }));
+    this.items = levelLoot(level).map((def, index) => new Loot({ scene, world, M, models: this.models, level, def, index, staticMaterial, metal: metalById(this.save.metal) }));
     for (const it of this.items) it.body.addEventListener('collide', (e) => this._onLootCollide(e));
     this.lootNeed = lootNeeded(level); this.lootDone = 0;
     this.traps = createTraps(level, { scene, world, M, level, items: this.items, staticMaterial, stage: this.stage, models: this.models });
@@ -219,6 +222,14 @@ class Game {
     if (changed('lang')) return this.setLanguage(s.lang);
     storeSettings(s);
     this.ui.syncSettings();
+  }
+
+  /** Сменить металл слитка: запомнить, обновить тексты и слиток на столе за меню. Действует со следующего старта уровня. */
+  setMetal(id) {
+    this.save.metal = metalById(id).id; storeSave(this.save);
+    setTextMetal(this.save.metal);
+    this.ui.rebuild();
+    if (this.state === 'menu') this._loadLevel(this.level);
   }
 
   /** Сменить язык: тексты интерфейса строятся заново, уровень и его состояние не трогаются. */
@@ -441,7 +452,7 @@ class Game {
       if (it.banked) continue;
       const p = it.body.position;
       if (p.y < WORLD.tableY - 0.2) {
-        if (it.role === 'target') return this.fail(lootFall(it.type));
+        if (it.role === 'target') return this.fail(lootFall(it.type, it.metal));
         it.bank(); this.toast(t('toast.propLost'));
         continue;
       }

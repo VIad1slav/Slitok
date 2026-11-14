@@ -6,7 +6,7 @@
 //   start  — true: кадр сразу после старта уровня, рука в стартовой позе
 //   dark   — true: дождаться полной темноты (уровни с «перебоями со светом»)
 //   side   — true: вид сбоку
-//   skin, accessory — вариант руки и украшение (id из src/cosmetics.js)
+//   skin, accessory — вариант руки и украшение (id из src/cosmetics.js); metal — металл слитка (id из src/metals.js)
 //   lang   — язык интерфейса; hud — false, чтобы убрать интерфейс с кадра
 //   screen — вместо уровня показать экран меню: 'menu' | 'levels' | 'controls' | 'settings' | 'loading'
 //   eval   — строка JavaScript, выполняется в игре перед снимком (g — игра)
@@ -45,6 +45,7 @@ for (const s of list) {
   await page.evaluate(async (s) => {
     const g = window.__gg, C = await import('/src/cosmetics.js'), S = 1 / 120;
     if (s.lang && g.setLanguage) g.setLanguage(s.lang);
+    if (s.metal) { g.save.metal = s.metal; (await import('/src/i18n/index.js')).setTextMetal(s.metal); }   // металл слитка — до старта уровня
     if (s.skin) g.hand.setSkin(C.cosmeticById(s.skin));
     g.hand.setAccessory(s.accessory ? C.cosmeticById(s.accessory) : null, g.models);
     if (s.screen) { if (g.state !== 'menu') g.toMenu(); g.ui.show(s.screen); if (s.eval) new Function('g', s.eval)(g); return; }
