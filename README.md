@@ -2,6 +2,14 @@
 
 Игра от первого лица: просунь руку в стеклянную коробку, возьми золотой слиток и вынеси его в «сейф», не разбив стекло и не задев ловушки. Чистый HTML + ES-модули, без сборщика. Библиотеки three@0.160.0 и cannon-es@0.20.0 лежат в `vendor/` — интернет игре не нужен. Языки — английский и русский. Выпускается в Steam как настольное приложение для Windows (Electron); в браузере работает из тех же файлов.
 
+## Что изменилось 2026-11-14
+
+- **Подсказка внизу экрана больше не закрывает «ЛКМ — схватить».** Индикатор захвата и подсказка уровня стоят одним столбиком и не могут пересечься. Проверено на 1280×720, 1366×768, 1920×1080, 2560×1440 и 3840×2160, на обоих языках.
+- **Масштаб интерфейса.** На экранах крупнее 1920×1080 интерфейс увеличивается целиком (×1,33 на 1440p, ×2 на 4K): раньше текст там был мелким.
+- **Рукав куртки.** Предплечье было голым, а «рукав» — чёрным цилиндром у локтя. Теперь это модель из Blender: графитовая ткань, манжета с резинкой, шов, складки. Выше локтя рукав растворяется, обрезанного торца в кадре нет; на виде сбоку видна согнутая в локте рука. Физика руки не менялась.
+- **Системные требования на странице Steam** приведены к замерам: минимальные — встроенная Intel UHD на «низком» качестве, рекомендуемые — дискретная видеокарта (проверено на RTX 4060). Мышь и клавиатура обязательны, геймпад и Steam Deck не поддерживаются.
+- **Скриншоты для Steam** пересняты, добавлен русский набор: `docs/steam/screenshots/` и `docs/steam/screenshots_ru/`.
+
 ## Запуск
 
 ```bash
@@ -159,9 +167,11 @@ blender --background --python tools/blender/build_all.py
 
 Если `blender` не в PATH, укажите полный путь к исполняемому файлу. Отдельные этапы: `build_models.py` (GLB + превью моделей) и `bake_textures.py` (запекание Cycles + превью; можно `-- only=gold,skin`). Параметры коробок берутся из `src/levels.js` через `node tools/export_levels.mjs`, поэтому после изменения размеров коробки или отверстия ассеты надо пересобрать — иначе игра покажет старое стекло при новой физике.
 
-- `assets/models/` — hand.glb (скелет: forearm, wrist, thumb/index/middle/ring/pinky _01.._03), gold_bar.glb, vase.glb, crown.glb, coins.glb, weight.glb, chips.glb, dice.glb, diamond.glb, ring.glb и watch.glb (украшения в координатах руки, игра вешает их на кости), camera.glb (cam_base и cam_head), shutter.glb (единичная пластина, растягивается под отверстие), glass_box.glb (стенки `L<id уровня>_<стенка>` и перегородки `L<id>_inner<номер>`; у этапов финала id вида `40s1`), table.glb, pedestal.glb, room.glb (стены и лампа), set_pawnshop.glb, set_museum.glb, set_bank.glb, set_casino.glb и set_boss.glb (обстановка ограблений).
-- `assets/textures/` — наборы `*_albedo.png`, `*_normal.png` (OpenGL), `*_orm.png` (R = AO, G = roughness, B = metalness) для gold, skin, glove, vase, crown, chips, dice и окружения (в том числе felt_green — сукно); `glove_light_albedo.png` — светлая перчатка под подкраску; `glass_smudges.png`, `glass_cracks_1..3.png`.
-- `tools/blender/previews/` — превью для проверки глазами.
+- `assets/models/` — hand.glb (скелет: forearm, wrist, thumb/index/middle/ring/pinky _01.._03; в нём же рукав куртки — сетки `sleeve` на кости forearm и `sleeve_upper` выше локтя), gold_bar.glb, vase.glb, crown.glb, coins.glb, weight.glb, chips.glb, dice.glb, diamond.glb, ring.glb и watch.glb (украшения в координатах руки, игра вешает их на кости), camera.glb (cam_base и cam_head), shutter.glb (единичная пластина, растягивается под отверстие), glass_box.glb (стенки `L<id уровня>_<стенка>` и перегородки `L<id>_inner<номер>`; у этапов финала id вида `40s1`), table.glb, pedestal.glb, room.glb (стены и лампа), set_pawnshop.glb, set_museum.glb, set_bank.glb, set_casino.glb и set_boss.glb (обстановка ограблений).
+- `assets/textures/` — наборы `*_albedo.png`, `*_normal.png` (OpenGL), `*_orm.png` (R = AO, G = roughness, B = metalness) для gold, skin, glove, sleeve (ткань рукава), vase, crown, chips, dice и окружения (в том числе felt_green — сукно); `glove_light_albedo.png` — светлая перчатка под подкраску; `glass_smudges.png`, `glass_cracks_1..3.png`.
+- `tools/blender/previews/` — превью для проверки глазами (рукав — `tex_sleeve*.png`).
+
+После пересборки в Blender текстуры надо заново перевести в WebP: `npm run textures`.
 
 Если GLB или PNG не загрузился, игра подставляет запасную геометрию из примитивов и процедурную текстуру (Canvas 2D) и пишет об этом в консоль.
 
