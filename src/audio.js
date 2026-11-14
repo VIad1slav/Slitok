@@ -127,6 +127,13 @@ export class AudioSys {
   zap() { if (this.ctx) { this._tone(1800, 0.3, 0.25, 'sawtooth', 0, 200); this._noise(0.3, 0.2, 'bandpass', 4000, 2); } }
   sizzle() { if (this.ctx) this._noise(0.35, 0.5, 'highpass', 4500); }
 
+  /** Рука устала и разжалась: глухой выдох — два нисходящих тона и шум. */
+  tired() {
+    if (!this.ctx) return;
+    this._tone(220, 0.14, 0.35, 'triangle', 0, 130); this._tone(165, 0.1, 0.45, 'sine', 0.08, 98);
+    this._noise(0.12, 0.3, 'lowpass', 700);
+  }
+
   win() {
     if (!this.ctx) return;
     [659, 880, 1109, 1319, 1760].forEach((f, i) => { this._tone(f, 0.16, 0.6, 'triangle', i * 0.09); this._tone(f * 2.01, 0.05, 0.8, 'sine', i * 0.09); });

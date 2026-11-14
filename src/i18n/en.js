@@ -122,6 +122,10 @@ export default {
   'trap.plateOk': 'Sensor fooled. Clean work.',
   'trap.laserAlarm': 'You touched a laser!',
   'trap.hot': 'Ouch! Hot!',
+  'meter.fatigue': 'FATIGUE',
+  'trap.tiredWarn': 'Your arm is tired and shaking — let it rest',
+  'trap.tired': 'Your grip gave out! Rest outside the case',
+  'set.fatigue': 'Arm fatigue',
 
   // --- fail reasons (the line above the joke on the lose screen)
   'fail.alarm': 'The alarm went off',

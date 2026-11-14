@@ -36,7 +36,7 @@ class Game {
     this.acc = 0; this.clock = 0; this.timeScale = 1;
     this.keys = new Set(); this.rmb = false; this.hadLock = false;
     this.autopilot = null;
-    this.hud = { meter: null };
+    this.hud = { meter: null, meter2: null };
     this.fps = 60; this._fpsAcc = 0; this._fpsFrames = 0; this._lowFpsTime = 0;
     const data = loadAll();
     this.save = data.save; this.settings = data.settings;
@@ -136,14 +136,14 @@ class Game {
     this.items = levelLoot(level).map((def, index) => new Loot({ scene, world, M, models: this.models, level, def, index, staticMaterial, metal: metalById(this.save.metal) }));
     for (const it of this.items) it.body.addEventListener('collide', (e) => this._onLootCollide(e));
     this.lootNeed = lootNeeded(level); this.lootDone = 0;
-    this.traps = createTraps(level, { scene, world, M, level, items: this.items, staticMaterial, stage: this.stage, models: this.models });
+    this.traps = createTraps(level, { scene, world, M, level, items: this.items, staticMaterial, stage: this.stage, models: this.models, hand: this.hand, fatigueOn: this.settings.fatigue });
     this._refreshStatics();
     this.hand.reset(level);
     this.stage.setLevel(level);
 
     this.time = 0; this.touches = 0; this.endTimer = 0; this.endAction = null;
     this.lastGlassContact = -9; this.lastHit = -9; this.alarmState = null; this.safePulse = 0;
-    this.hud.meter = null; this.acc = 0;
+    this.hud.meter = null; this.hud.meter2 = null; this.acc = 0;
   }
 
   _refreshStatics() {
@@ -413,7 +413,7 @@ class Game {
       this.time += dt;
       if (this.autopilot) { const r = this.autopilot.next(); if (r.done) this.autopilot = null; } else this._applyKeys(dt);
     }
-    this.hud.meter = null;
+    this.hud.meter = null; this.hud.meter2 = null;      // meter — полоска ловушки или хвата, meter2 — усталость руки
     this.hand.step(dt, this.items);
     this.world.step(dt);
     for (const it of this.items) if (!it.banked) { it.postStep(); if (it.impact > 0) this._fragileHit(it, it.impact); }
@@ -437,7 +437,7 @@ class Game {
     const ctx = { game: this, hand: this.hand, items: this.items, audio: this.audio, time: this.time };
     for (const t of this.traps) t.step(dt, ctx);
     // полоска «хват» для скользкой добычи: насколько скорость кисти близка к той, на которой предмет выскользнет
-    if (!this.hud.meter && this.hand.item?.type.slipSpeed) this.hud.meter = { label: t('meter.grip'), value: this.hand.vel.length() / this.hand.slipSpeed };
+    if (!this.hud.meter && this.hand.item?.type.slipSpeed) this.hud.meter = { label: t('meter.grip'), value: this.hand.vel.length() / (this.hand.slipSpeed * this.hand.slipFactor) };
 
     if (this.alarmState) {
       this.alarmState.left -= dt;
@@ -506,7 +506,7 @@ class Game {
     if (this.state === 'playing' || this.state === 'ending') {
       this.ui.update(dt, {
         time: this.time, timeLimit: this.level.timeLimit, touches: this.touches, damage: this.box.damage, maxHealth: this.box.maxHealth,
-        camUses: this.stage.sideUses, meter: this.hud.meter, loot: this.lootNeed > 1 ? { done: this.lootDone, need: this.lootNeed } : null, alarm: this.alarmState, grabReady: this.hand.grabReady, holding: this.hand.holding,
+        camUses: this.stage.sideUses, meter: this.hud.meter, meter2: this.hud.meter2, loot: this.lootNeed > 1 ? { done: this.lootDone, need: this.lootNeed } : null, alarm: this.alarmState, grabReady: this.hand.grabReady, holding: this.hand.holding,
         needLock: this.state === 'playing' && !this.autopilot && document.pointerLockElement !== this.stage.renderer.domElement,
       });
     }

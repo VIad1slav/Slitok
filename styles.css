@@ -136,3 +136,9 @@ kbd { font: 600 12px var(--ui); padding: 3px 8px; border: 1px solid rgba(255, 25
 .setvalue { font-size: 13px; color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
 .fpsbox { position: absolute; right: 12px; bottom: 10px; font-size: 12px; letter-spacing: 0.08em; color: var(--gold); opacity: 0.85; font-variant-numeric: tabular-nums; pointer-events: none; }
 @media (max-width: 560px) { .setrow { grid-template-columns: 1fr; gap: 2px; } }
+
+/* --- вторая полоска HUD: усталость руки. Синяя, пока рука в порядке; красная — когда началась дрожь */
+.meter2 .mbar { border-color: rgba(120, 190, 255, 0.6); }
+.meter2 .mbar i { background: linear-gradient(90deg, #4aa8ff, #9fd2ff); }
+.meter2.hot .mbar { border-color: rgba(255, 90, 40, 0.7); }
+.meter2.hot .mbar i { background: linear-gradient(90deg, #ffb020, #ff3a10); }

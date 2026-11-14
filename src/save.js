@@ -39,6 +39,7 @@ export const SETTINGS_DEFAULTS = {
   sensitivity: 1,        // множитель чувствительности мыши, 0.3..2.5
   invertDepth: false,    // поменять местами «вперёд» и «назад» (колесо и W/S)
   noFlicker: false,      // true — свет перед темнотой гаснет плавно, без мигания
+  fatigue: true,         // усталость руки на уровнях, где она есть; false — шкалы нет (предел досягаемости остаётся)
   fullscreen: true,      // настольное приложение: открываться на весь экран
 };
 
@@ -78,6 +79,7 @@ export function migrateSettings(raw, legacy = null) {
   s.sensitivity = num(src.sensitivity, 0.3, 2.5, s.sensitivity);
   s.invertDepth = src.invertDepth === true;
   s.noFlicker = src.noFlicker === true;
+  s.fatigue = src.fatigue !== false;
   if (typeof src.fullscreen === 'boolean') s.fullscreen = src.fullscreen;
   return s;
 }

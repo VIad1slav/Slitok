@@ -125,6 +125,7 @@ export class UI {
     cycle('invertDepth', t('set.invert'), [false, true], () => S.invertDepth, onOff, (v) => set({ invertDepth: v }));
     slider('volume', t('set.sfx'), 0, 1, 0.01, percent);
     slider('music', t('set.music'), 0, 1, 0.01, percent);
+    cycle('fatigue', t('set.fatigue'), [true, false], () => S.fatigue, onOff, (v) => set({ fatigue: v }));
     cycle('noFlicker', t('opt.flicker'), [false, true], () => S.noFlicker, (v) => (v ? t('opt.flickerOff') : t('opt.flickerOn')), (v) => set({ noFlicker: v }));
     sc.append(this._button(t('common.back'), () => this.show(this.controlsBack || 'menu'), 'ghost'));
     settings.append(sc);
@@ -166,6 +167,7 @@ export class UI {
       <div class="tr">
         <div class="cam"><kbd>C</kbd> ${t('hud.side')} <b class="camuses">3</b></div>
         <div class="meter" hidden><span class="mlabel"></span><div class="mbar"><i></i><b class="mmark" hidden></b></div></div>
+        <div class="meter meter2" hidden><span class="mlabel"></span><div class="mbar"><i></i><b class="mmark" hidden></b></div></div>
       </div>
       <div class="alarm" hidden><span class="atext"></span><b class="acount"></b></div>
       <div class="toast" hidden></div>
@@ -176,7 +178,8 @@ export class UI {
       <div class="clickme" hidden>${t('hud.clickme')}</div>`;
     this.root.append(hud);
     const q = (s) => hud.querySelector(s);
-    this.$ = { lootrow: q('.lootrow'), lootlabel: q('.lootlabel'), loot: q('.loot'), lvl: q('.lvl'), timer: q('.timer'), limit: q('.limit'), touches: q('.touches'), pips: q('.pips'), camuses: q('.camuses'), meter: q('.meter'), mlabel: q('.mlabel'), mbar: q('.mbar i'), mmark: q('.mmark'), alarm: q('.alarm'), atext: q('.atext'), acount: q('.acount'), toast: q('.toast'), grab: q('.grab'), grabText: q('.grab span'), hint: q('.hint'), clickme: q('.clickme') };
+    this.$ = { lootrow: q('.lootrow'), lootlabel: q('.lootlabel'), loot: q('.loot'), lvl: q('.lvl'), timer: q('.timer'), limit: q('.limit'), touches: q('.touches'), pips: q('.pips'), camuses: q('.camuses'), meter: q('.meter:not(.meter2)'), mlabel: q('.meter:not(.meter2) .mlabel'), mbar: q('.meter:not(.meter2) .mbar i'), mmark: q('.meter:not(.meter2) .mmark'), alarm: q('.alarm'), atext: q('.atext'), acount: q('.acount'), toast: q('.toast'), grab: q('.grab'), grabText: q('.grab span'), hint: q('.hint'), clickme: q('.clickme') };
+    this.$2 = { meter: q('.meter2'), label: q('.meter2 .mlabel'), bar: q('.meter2 .mbar i'), mark: q('.meter2 .mmark') };
     this.vignette = el('div', 'vignette'); this.root.append(this.vignette);
     this.fpsBox = el('div', 'fpsbox'); this.fpsBox.hidden = true; this.root.append(this.fpsBox);
 
@@ -238,7 +241,7 @@ export class UI {
     this.$.hint.textContent = levelHint(level); this.$.hint.classList.remove('gone');
     this.hintTimer = 10;
     this.$.limit.textContent = level.timeLimit ? ` / ${fmtTime(level.timeLimit)}` : '';
-    this.$.toast.hidden = true; this.$.alarm.hidden = true; this.$.meter.hidden = true;
+    this.$.toast.hidden = true; this.$.alarm.hidden = true; this.$.meter.hidden = true; this.$2.meter.hidden = true;
     this.vignette.className = 'vignette';
   }
 
@@ -254,6 +257,14 @@ export class UI {
     this.$.camuses.textContent = s.camUses;
     this.$.lootrow.hidden = !s.loot;
     if (s.loot) this.$.loot.textContent = `${s.loot.done} / ${s.loot.need}`;
+    // вторая полоска — усталость руки (первая занята ловушкой или хватом)
+    this.$2.meter.hidden = !s.meter2;
+    if (s.meter2) {
+      this.$2.label.textContent = s.meter2.label; this.$2.bar.style.width = `${Math.min(100, s.meter2.value * 100)}%`;
+      this.$2.mark.hidden = s.meter2.mark == null;
+      if (s.meter2.mark != null) this.$2.mark.style.left = `${s.meter2.mark * 100}%`;
+      this.$2.meter.classList.toggle('hot', s.meter2.mark != null && s.meter2.value >= s.meter2.mark);
+    }
     this.$.meter.hidden = !s.meter;
     if (s.meter) {
       this.$.mlabel.textContent = s.meter.label; this.$.mbar.style.width = `${Math.min(100, s.meter.value * 100)}%`;

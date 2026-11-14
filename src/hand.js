@@ -152,6 +152,7 @@ export class Hand {
     this.contacts = [];
     this._rest = [];
     this.shoulder = new THREE.Vector3(...WORLD.shoulder);
+    this.reachMax = null; this.slipFactor = 1; this.shaking = false; this.tremor = V();
     this.skin = 'skin';
 
     // --- сферы-коллайдеры в локальных координатах кисти
@@ -296,6 +297,9 @@ export class Hand {
     this.place(HAND_START);
     this.curl = 0; this.gripInput = false; this.gripLock = 0; this.regrab = 0; this.ghost = 0; this.slipTimer = 0;
     this.levelSlipSpeed = this.slipSpeed = level.grip?.slipSpeed ?? HAND.slipSpeed;
+    this.reachMax = level.reach?.max ?? null;      // предел досягаемости от плеча, если уровень его задаёт
+    this.slipFactor = 1;                           // усталость снижает порог выскальзывания (см. FatigueTrap); 1 — без изменений
+    this.shaking = false; this.tremor.set(0, 0, 0); // дрожь уставшей руки: смещение точки, к которой тянется кисть
     this.grabItem = this.lastItem = null; this.grabReady = false;
     this.events.length = 0;
     this.updateVisual(0);
@@ -305,7 +309,26 @@ export class Hand {
   moveTarget(dx, dy, dz) {
     const t = this.target, a = WORLD.reachMin, b = WORLD.reachMax;
     t.x = clamp(t.x + dx, a[0], b[0]); t.y = clamp(t.y + dy, a[1], b[1]); t.z = clamp(t.z + dz, a[2], b[2]);
+    this._clampReach(t);
   }
+
+  /**
+   * Предел досягаемости от плеча (поле уровня reach.max, метры): точка не может быть дальше от плеча, чем длина руки.
+   * У уровней без этого поля предела нет — действует только общий ящик reachMin / reachMax.
+   */
+  _clampReach(p) {
+    if (this.reachMax == null) return;
+    const s = this.shoulder, dx = p.x - s.x, dy = p.y - s.y, dz = p.z - s.z;
+    if (dx * dx + dy * dy + dz * dz <= this.reachMax * this.reachMax) return;
+    // Лишнее убирается только по глубине: точка остаётся на той же высоте и на том же месте по ширине, но ближе к игроку.
+    // (Тянуть её к плечу по прямой нельзя: в узком отверстии кисть съезжала бы вбок и вверх и упиралась в стекло.)
+    const depth2 = this.reachMax * this.reachMax - dx * dx - dy * dy;
+    if (depth2 > 0) p.z = s.z - Math.sqrt(depth2);
+    else { const d = Math.hypot(dx, dy, dz); p.set(s.x + dx * this.reachMax / d, s.y + dy * this.reachMax / d, s.z + dz * this.reachMax / d); }   // точка слишком далеко вбок — тянем к плечу
+  }
+
+  /** Насколько рука вытянута: 0 — расслаблена (ближе rest метров от плеча), 1 — на пределе досягаемости max. */
+  extension(rest, max) { return clamp((this.pos.distanceTo(this.shoulder) - rest) / (max - rest), 0, 1); }
   rotate(dPitch, dRoll, dYaw = 0) {
     this.angT.pitch = clamp(this.angT.pitch + dPitch, ...HAND.pitchLimits);
     this.angT.roll = clamp(this.angT.roll + dRoll, ...HAND.rollLimits);
@@ -388,9 +411,12 @@ export class Hand {
     _a.copy(this.target).sub(this.pos);
     const far = _a.length();
     if (far > HAND.leash) this.target.copy(this.pos).addScaledVector(_a, HAND.leash / far);
+    if (this.reachMax != null) this._clampReach(this.target);   // автопилот ставит цель напрямую — предел действует и на него
 
     // 2) пружина-демпфер
-    _a.copy(this.target).sub(this.pos).multiplyScalar(HAND.stiffness).addScaledVector(this.vel, -HAND.damping);
+    _a.copy(this.target);
+    if (this.shaking) _a.add(this.tremor);
+    _a.sub(this.pos).multiplyScalar(HAND.stiffness).addScaledVector(this.vel, -HAND.damping);
     this.vel.addScaledVector(_a, dt);
     const sp = this.vel.length();
     if (sp > HAND.maxSpeed) this.vel.multiplyScalar(HAND.maxSpeed / sp);
@@ -435,7 +461,7 @@ export class Hand {
 
     // 7) проскальзывание
     if (this.holding) {
-      this.slipTimer = this.vel.length() > this.slipSpeed ? this.slipTimer + dt : 0;
+      this.slipTimer = this.vel.length() > this.slipSpeed * this.slipFactor ? this.slipTimer + dt : 0;
       _a.copy(this.barRelPos).applyQuaternion(this.prevQuat).add(this.prevWrist);
       const drift = _a.distanceTo(this.item.position());
       if (this.slipTimer > HAND.slipTime || drift > HAND.slipDrift) this.release('slip');
@@ -556,7 +582,7 @@ export class Hand {
     this.holding = false; this.item = null; this.heldLocal.length = 0; this.heldR.length = 0;
   }
 
-  /** reason: 'open' | 'slip' | 'hot' */
+  /** reason: 'open' | 'slip' | 'hot' | 'tired' */
   release(reason = 'open', lock = 0) {
     if (!this.holding) return;
     const item = this.item;

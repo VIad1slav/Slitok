@@ -17,7 +17,9 @@
 //      не наезжают друг на друга и не выходят за край экрана;
 //   9. настройки: качество графики, предел кадров, инверсия, чувствительность, громкость — применяются и сохраняются;
 //   10. металлы слитка: золото не изменилось, на платине, серебре и бронзе автопилот проходит все уровни;
-//   11. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
+//   11. предел досягаемости от плеча и усталость руки: шкала тратится и восстанавливается, дрожь, слабый хват,
+//       рука разжимается на 100 %; с выключенной настройкой шкалы нет;
+//   12. нагрузка на отрисовку по уровням (вызовы, треугольники, время кадра относительно уровня 1).
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
@@ -527,7 +529,7 @@ const set = await page.evaluate(async () => {
   g.toMenu();
   return out;
 });
-check(set.rows.join() === 'lang,quality,fpsLimit,showFps,sensitivity,invertDepth,volume,music,noFlicker', `экран настроек: строки ${set.rows.join(', ')} (режим экрана — только в приложении)`);
+check(set.rows.join() === 'lang,quality,fpsLimit,showFps,sensitivity,invertDepth,volume,music,fatigue,noFlicker', `экран настроек: строки ${set.rows.join(', ')} (режим экрана — только в приложении)`);
 check(set.low.name === 'low' && set.low.shadows === false && set.low.post === false && set.low.pr === 0.75 && set.low.transmission === 0 && set.low.pixel > 0 && set.low.auto === 'won',
   `качество «${set.low.label}»: теней нет, постобработки нет, стекло простое, разрешение ×${set.low.pr}; кадр не чёрный, уровень 1 проходится`);
 check(set.medium.transmission === 0 && set.medium.shadows === 1024 && set.medium.samples === 2 && set.medium.pr === 1 && set.high.shadows === 2048 && set.high.samples === 4 && set.high.transmission === 1 && set.high.post,
@@ -614,6 +616,77 @@ check(ML.silver.name === 'Серебряный слиток' && /платино�
 for (const [m, r] of Object.entries(metals.runs)) check(r.won === r.total, `автопилот на металле «${m}»: пройдено ${r.won} из ${r.total} уровней, суммарное время ${r.time} с${r.failed.length ? ' — не пройдены: ' + r.failed.join('; ') : ''}`);
 check(metals.labels.length === 5 && new Set(metals.labels.slice(0, 4)).size === 4 && metals.labels[4] === metals.labels[0] && metals.afterClick.saved === 'platinum' && metals.afterClick.menuBar === 'platinum' && metals.final === 'gold',
   `меню: кнопка перебирает четыре металла по кругу (${metals.labels.slice(0, 4).join(' → ')}), выбор записан в сохранение, слиток за меню сменился`);
+
+// --- предел досягаемости от плеча и усталость руки
+// Проверочный уровень — коробка уровня 8 без карусели, слиток 2 кг, с полями reach и fatigue.
+const tired = await page.evaluate(async () => {
+  const g = window.__gg, S = 1 / 120, out = {}, { LEVELS } = await import('/src/levels.js');
+  const L8 = LEVELS.find((l) => l.id === 8), L7 = LEVELS.find((l) => l.id === 7);
+  const base = { ...L8, id: 9010, name: 'проверка: усталость', hint: '', traps: [], timeLimit: undefined, monkey: false, bar: { ...L8.bar, yaw: 90, mass: 2 } };
+  const withAll = { ...base, reach: { max: 1.3 }, fatigue: { extend: 0.2, hold: 0.05, recover: 0.25 } };
+  const run = (s, fn) => { for (let i = 0; i < s * 120 && g.state === 'playing'; i++) { if (fn) fn(); g._fixedStep(S); } };
+  const fat = () => g.traps.find((t) => t.def.type === 'fatigue');
+  const dist = () => g.hand.pos.distanceTo(g.hand.shoulder);
+  const hole = [-0.1, 1.0, 0.11];                       // центр круглого отверстия в передней стенке
+  const enter = (h) => { run(1.5, () => h.target.set(hole[0], hole[1], 0.5)); run(3, () => h.target.set(hole[0], hole[1], -0.4)); };
+
+  // 1) предел досягаемости: без поля reach рука уходит глубже, с ним — останавливается на расстоянии max от плеча
+  g.startLevelDef(base); g.hand.place(g.level.approach); enter(g.hand);
+  out.free = { dist: +dist().toFixed(3), z: +g.hand.pos.z.toFixed(3), reachMax: g.hand.reachMax };
+  g.settings.fatigue = true;
+  g.startLevelDef(withAll); g.hand.place(g.level.approach); const h = g.hand; enter(h);
+  out.limited = { dist: +dist().toFixed(3), z: +h.pos.z.toFixed(3) };
+  h.moveTarget(0, 0, -5); out.moveTarget = +h.target.distanceTo(h.shoulder).toFixed(3);       // ввод игрока тоже ограничен
+
+  // 2) шкала: растёт при вытянутой руке, падает, когда рука вынута
+  out.extended = +fat().value.toFixed(3);
+  run(2); out.extended2 = +fat().value.toFixed(3);
+  run(1.5, () => h.target.set(hole[0], hole[1], 0.4)); run(0.7, () => h.target.set(0.3, 1.05, 0.45));   // назад по оси отверстия и в сторону — отдыхать
+  const afterExit = fat().value; run(2.5);
+  out.rest = { before: +afterExit.toFixed(3), after: +fat().value.toFixed(3), meter: !!g.hud.meter2 };
+
+  // 3) дрожь с 60 %: кисть качается, и качается одинаково при повторе (без случайных чисел)
+  const shake = () => { g.startLevelDef(withAll); g.hand.place(g.level.approach); const f = fat(); const path = []; run(2, () => { f.value = 0.9; h.target.set(-0.1, 1.2, 0.4); path.push(h.pos.x + h.pos.y + h.pos.z); }); return path; };
+  const s1 = shake(), calm = (() => { g.startLevelDef(base); g.hand.place(g.level.approach); const path = []; run(2, () => { g.hand.target.set(-0.1, 1.2, 0.4); path.push(g.hand.pos.x + g.hand.pos.y + g.hand.pos.z); }); return path; })(), s2 = shake();
+  const wobble = (p) => { let m = 0; for (let i = 200; i < p.length; i++) m = Math.max(m, Math.abs(p[i] - p[i - 1])); return m; };
+  out.tremor = { shaking: wobble(s1), calm: wobble(calm), same: s1.every((v, i) => v === s2[i]), flag: h.shaking };
+
+  // 4) хват слабеет с 80 %, на 100 % рука разжимается сама и какое-то время не хватает
+  g.startLevelDef(withAll); g.hand.place(g.level.approach);
+  const bar = g.items[0], p = bar.position().clone();
+  run(1.5, () => h.target.set(p.x, p.y + 0.045, 0.5)); run(2.5, () => h.target.set(p.x, p.y + 0.045, p.z)); run(0.5, () => h.target.set(p.x, p.y + 0.02, p.z));
+  h.setGrip(true); run(0.5);
+  out.grab = { held: h.holding, mass: bar.mass };
+  fat().value = 0.9; run(0.05); out.weak = { factor: +h.slipFactor.toFixed(2), value: +fat().value.toFixed(2) };
+  fat().value = 0.999; run(0.5);
+  out.gaveOut = { held: h.holding, lock: +h.gripLock.toFixed(2), state: g.state, value: +fat().value.toFixed(2) };
+
+  // 5) настройка «усталость руки» выключена: шкалы нет, предел досягаемости остаётся
+  g.settings.fatigue = false;
+  g.startLevelDef(withAll); g.hand.place(g.level.approach); enter(g.hand); run(1);
+  out.off = { trap: !!fat(), meter: !!g.hud.meter2, dist: +dist().toFixed(3), shaking: g.hand.shaking, factor: g.hand.slipFactor };
+  g.settings.fatigue = true;
+
+  // 6) две полоски сразу: жар и усталость на одном уровне
+  g.startLevelDef({ ...L7, id: 9011, name: 'проверка: жар и усталость', hint: '', fatigue: {}, reach: { max: 1.35 } });
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const m1 = document.querySelector('.hud .meter:not(.meter2)'), m2 = document.querySelector('.hud .meter2');
+  out.two = { heat: !m1.hidden && m1.querySelector('.mlabel').textContent, fatigue: !m2.hidden && m2.querySelector('.mlabel').textContent, overlap: m1.getBoundingClientRect().bottom > m2.getBoundingClientRect().top + 0.5 };
+  // на обычном уровне кампании нет ни предела, ни шкалы
+  g.startLevelById(8); out.campaign = { reach: g.hand.reachMax, trap: !!fat(), factor: g.hand.slipFactor, shaking: g.hand.shaking };
+  g.toMenu();
+  return out;
+});
+check(tired.free.reachMax === null && tired.limited.dist <= 1.305 && tired.free.dist > tired.limited.dist + 0.02 && tired.limited.z > tired.free.z + 0.02 && tired.moveTarget <= 1.3001,
+  `предел досягаемости: без поля reach кисть уходит на ${tired.free.dist} м от плеча (z = ${tired.free.z}), с reach.max = 1.3 — останавливается на ${tired.limited.dist} м (z = ${tired.limited.z}); ввод игрока ограничен так же (${tired.moveTarget} м)`);
+check(tired.extended > 0.2 && tired.extended2 > tired.extended && tired.rest.before < tired.extended2 && tired.rest.after < tired.extended2 - 0.3 && tired.rest.meter,
+  `усталость: вытянутая рука — шкала ${tired.extended} → ${tired.extended2}; рука вынута и разжата — ${tired.rest.before} сразу после выхода, ${tired.rest.after} после отдыха; полоска на HUD есть`);
+check(tired.tremor.flag && tired.tremor.shaking > tired.tremor.calm * 3 && tired.tremor.same, `дрожь при усталости 90 %: кисть качается (шаг ${(tired.tremor.shaking * 1000).toFixed(2)} мм против ${(tired.tremor.calm * 1000).toFixed(2)} мм у спокойной руки), при повторе — точно так же (детерминированно)`);
+check(tired.grab.held && tired.weak.factor < 1 && tired.weak.factor >= 0.5 && !tired.gaveOut.held && tired.gaveOut.lock > 0.5 && tired.gaveOut.state === 'playing',
+  `слиток ${tired.grab.mass} кг в уставшей руке: при 90 % порог выскальзывания ×${tired.weak.factor}; на 100 % рука разжалась сама, хват заблокирован ещё на ${tired.gaveOut.lock} с, уровень продолжается`);
+check(!tired.off.trap && !tired.off.meter && tired.off.dist <= 1.305 && !tired.off.shaking && tired.off.factor === 1, `настройка «Усталость руки» выключена: шкалы и дрожи нет, предел досягаемости остался (${tired.off.dist} м)`);
+check(tired.two.heat === 'ЖАР' && tired.two.fatigue === 'УСТАЛОСТЬ' && !tired.two.overlap, `две полоски на HUD одновременно: «${tired.two.heat}» и «${tired.two.fatigue}», друг на друга не наезжают`);
+check(tired.campaign.reach === null && !tired.campaign.trap && tired.campaign.factor === 1 && !tired.campaign.shaking, 'на уровнях кампании 1–40 нет ни предела досягаемости, ни усталости');
 
 // --- общая модель добычи
 const loot = await page.evaluate(async () => {

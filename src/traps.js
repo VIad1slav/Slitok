@@ -498,8 +498,66 @@ class BlackoutTrap {
   dispose() { this.env.stage.clearDarkness(); }
 }
 
+/**
+ * Усталость руки. Включается полем уровня fatigue (не из списка traps) и настройкой игрока «Усталость руки».
+ * Одна шкала 0..1:
+ *   растёт, пока рука вытянута (квадратично от доли вытяжения) и пока она держит предмет (пропорционально его массе;
+ *   за край держать тяжелее — учитывается плечо рычага от ладони до середины предмета);
+ *   падает, когда рука ничего не держит, — быстрее всего, если она вынута из витрины.
+ * Что делает: с tremorAt рука дрожит, с slipAt предмет выскальзывает на меньшей скорости, на 1 рука разжимается сама
+ * и lock секунд не может схватить. Сама усталость уровень не проваливает — проваливает упавший со стола предмет.
+ * Дрожь считается от времени уровня (синусы, без случайных чисел): прохождение автопилотом повторяется в точности.
+ *
+ * Поля (все необязательные, значения по умолчанию — ниже):
+ *   rest     — расстояние от плеча, м, ближе которого рука считается расслабленной;
+ *   extend   — прирост в секунду при полностью вытянутой руке;
+ *   hold     — прирост в секунду на килограмм предмета в руке; lever — добавка за каждый метр плеча рычага;
+ *   recover  — убыль в секунду, когда рука свободна и снаружи; inside — её доля, пока рука внутри витрины;
+ *   tremor   — размах дрожи, м, при полной усталости; slipDrop — на какую долю падает порог выскальзывания к 100 %.
+ */
+export class FatigueTrap {
+  constructor(def, env) {
+    this.def = { rest: 0.75, extend: 0.08, hold: 0.03, lever: 3, recover: 0.12, inside: 0.35, tremorAt: 0.6, slipAt: 0.8, tremor: 0.006, slipDrop: 0.5, lock: 1.5, ...(def === true ? {} : def) };
+    this.def.type = 'fatigue';
+    this.env = env; this.value = 0; this.shaking = false;
+    this.max = env.level.reach?.max ?? 1.35;        // «полностью вытянута» — предел досягаемости уровня
+  }
+  step(dt, ctx) {
+    const h = ctx.hand, d = this.def;
+    const ext = h.extension(d.rest, this.max);
+    let rate = d.extend * ext * ext;
+    if (h.holding) {
+      const p = h.item.position(), lever = Math.hypot(p.x - h.pos.x, p.z - h.pos.z);
+      rate += d.hold * h.item.mass * (1 + d.lever * lever);
+    } else rate -= d.recover * (ctx.game.box.contains(h.pos) ? d.inside : 1);
+    this.value = Math.min(1, Math.max(0, this.value + rate * dt));
+    this.ext = ext; this.rate = rate;
+
+    // дрожь: смещение точки, к которой тянется кисть
+    const k = this.value > d.tremorAt ? (this.value - d.tremorAt) / (1 - d.tremorAt) : 0, A = d.tremor * k, time = ctx.time;
+    h.shaking = k > 0;
+    h.tremor.set(A * Math.sin(time * 31.0), A * Math.sin(time * 37.0 + 1.3), A * Math.sin(time * 29.0 + 2.1));
+    if (h.shaking && !this.shaking) ctx.game.toast(say('trap.tiredWarn'));
+    this.shaking = h.shaking;
+    // хват слабеет
+    h.slipFactor = this.value > d.slipAt ? 1 - d.slipDrop * (this.value - d.slipAt) / (1 - d.slipAt) : 1;
+    // предел: рука разжимается и отдыхает
+    if (this.value >= 1 && h.holding) {
+      h.release('tired', d.lock);
+      ctx.audio.tired();
+      ctx.game.toast(say('trap.tired'));
+    }
+    ctx.game.hud.meter2 = { label: say('meter.fatigue'), value: this.value, mark: d.tremorAt };
+  }
+  update() {}
+  dispose() { const h = this.env.hand; if (h) { h.shaking = false; h.tremor.set(0, 0, 0); h.slipFactor = 1; } }
+}
+
 const TYPES = { blackout: BlackoutTrap, shutter: ShutterTrap, scale: ScaleTrap, plate: PlateTrap, lasers: LaserTrap, hot: HotTrap, spinner: SpinnerTrap, camera: CameraTrap };
 
 export function createTraps(level, env) {
-  return (level.traps || []).map((def) => new TYPES[def.type](def, { ...env, item: env.items[def.item ?? 0] }));
+  const traps = (level.traps || []).map((def) => new TYPES[def.type](def, { ...env, item: env.items[def.item ?? 0] }));
+  // усталость — свойство уровня (поле fatigue), а не ловушка из списка; игрок может выключить её в настройках
+  if (level.fatigue && env.fatigueOn !== false) traps.push(new FatigueTrap(level.fatigue, env));
+  return traps;
 }
