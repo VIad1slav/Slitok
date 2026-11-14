@@ -1,5 +1,5 @@
 // Съёмка кадров из игры по списку:
-//   node tools/test/shots.mjs <список.json> <папка> [--size 1920x1080] [--prefix имя_] [--quality high]
+//   node tools/test/shots.mjs <список.json> <папка> [--size 1920x1080] [--prefix имя_] [--quality high] [--lang ru]
 // Список — JSON-массив кадров. Поля кадра (все, кроме name, необязательные):
 //   name   — имя файла без расширения
 //   level  — id уровня; автопилот ведёт руку t секунд (или долю прохождения frac: 0..1), затем время замирает
@@ -21,6 +21,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const args = process.argv.slice(2), opt = (name, def) => { const i = args.indexOf('--' + name); return i >= 0 ? args[i + 1] : def; };
 const list = JSON.parse(readFileSync(resolve(args[0]), 'utf8')), outDir = resolve(args[1]);
 const [W, H] = opt('size', '1280x720').split('x').map(Number), prefix = opt('prefix', ''), quality = opt('quality', null);
+const langAll = opt('lang', null);   // --lang ru: снять весь список на этом языке, что бы ни стояло в самих кадрах
+if (langAll) for (const s of list) s.lang = langAll;
 mkdirSync(outDir, { recursive: true });
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp', '.glb': 'model/gltf-binary', '.json': 'application/json' };

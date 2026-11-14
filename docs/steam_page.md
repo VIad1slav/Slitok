@@ -265,16 +265,23 @@ Recommended:
 
 ## 7. Скриншоты
 
-1920×1080, «высокое» качество, английский интерфейс. Лежат в `docs/steam/screenshots/`,
-пересъёмка: `node tools/test/shots.mjs tools/test/lists/steam_screenshots.json docs/steam/screenshots --size 1920x1080 --quality high`.
+1920×1080, «высокое» качество. Два одинаковых набора по 12 кадров:
+
+- `docs/steam/screenshots/` — английский интерфейс (основной набор для страницы);
+- `docs/steam/screenshots_ru/` — русский интерфейс (в Steamworks загружается как локализованные скриншоты для русского языка).
+
+Пересняты 2026-11-14 после исправления HUD и нового рукава. Пересъёмка:
+
+- `node tools/test/shots.mjs tools/test/lists/steam_screenshots.json docs/steam/screenshots --size 1920x1080 --quality high`
+- `node tools/test/shots.mjs tools/test/lists/steam_screenshots.json docs/steam/screenshots_ru --size 1920x1080 --quality high --lang ru`
 
 | Файл | Что на кадре | Зачем |
 | --- | --- | --- |
 | `01_monkey_trap.png` | Ломбард: рука держит слиток внутри коробки с узким отверстием | главный крючок игры |
 | `02_museum_vase.png` | Музей: рука опускается к вазе | вторая обстановка, хрупкая добыча |
-| `03_museum_lasers.png` | Музей: ваза под тремя лазерами, белая перчатка | ловушки |
+| `03_museum_lasers.png` | Музей: рука в белой перчатке опускается к вазе между лазерами | ловушки |
 | `04_bank_shutter.png` | Банк: слиток выносят из-под закрывающейся заслонки | напряжение, таймер |
-| `05_bank_scales.png` | Банк: подмена слитка на груз на весах | головоломка «в два хода» |
+| `05_bank_scales.png` | Банк: подмена слитка на груз на весах, красная перчатка | головоломка «в два хода» |
 | `06_casino_diamond.png` | Казино: бриллиант между лазерами, кольцо на пальце | неон, косметика |
 | `07_casino_dice.png` | Казино: кубики на карусели | движение |
 | `08_casino_blackout.png` | Казино: темнота, светятся рёбра стекла и рука | атмосфера |

@@ -21,7 +21,7 @@
   {
     "name": "03_museum_lasers",
     "level": 16,
-    "frac": 0.45,
+    "frac": 0.66,
     "skin": "glove_white",
     "lang": "en"
   },
@@ -35,8 +35,8 @@
   {
     "name": "05_bank_scales",
     "level": 22,
-    "frac": 0.45,
-    "skin": "glove",
+    "frac": 0.5,
+    "skin": "glove_red",
     "lang": "en"
   },
   {
